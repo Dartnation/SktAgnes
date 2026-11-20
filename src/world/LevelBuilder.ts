@@ -132,26 +132,43 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     }
   }
 
-  // Stairs: visible treads. The player glides on the analytic ramp; the
-  // treads sit on that same slope so the camera never sinks into them.
+  // Solid treads and risers instead of floating 12cm plates. A full-size
+  // landing stays clear of the Personnel Room door between the two flights.
+  // The player still glides smoothly on the matching collision ramp.
   for (const stair of world.stairs) {
     const steps = 14
     const y0 = FLOOR_Y[stair.fromFloor]
     const y1 = FLOOR_Y[stair.toFloor]
+    if (stair.axis !== 'z') continue
+    const rise = y1 - y0
+    const depth = stair.d / steps
+    const x0 = stair.x + 0.15
+    const width = stair.w - 0.3
     for (let i = 0; i < steps; i++) {
       const t0 = i / steps
       const t1 = (i + 1) / steps
-      const top = y0 + t1 * (y1 - y0)
-      if (stair.axis === 'z') {
-        const z = stair.z + t0 * stair.d
-        const d = (stair.d / steps) * 0.96
-        push(`stairs|concrete`, slab(stair.x + 0.15, top - 0.12, z, stair.w - 0.3, 0.12, d))
-      }
+      const top = y0 + t1 * rise
+      const z = stair.z + i * depth
+      // Each concrete riser supports the next tread down to the flight base.
+      // A hair of overlap avoids visible cracks on the GPU.
+      push('stairs|concrete', slab(x0, y0, z, width, top - y0, depth * 1.005))
+      // Thin dark edge makes each tread legible from above.
+      push('stairs|trim', slab(x0, top - 0.025, z + depth * 0.85, width, 0.026, depth * 0.13))
     }
-    const railH = 0.9
-    if (stair.axis === 'z') {
-      push(`stairs|trim`, slab(stair.x, y0, stair.z, 0.08, railH, stair.d))
-      push(`stairs|trim`, slab(stair.x + stair.w - 0.08, y0, stair.z, 0.08, railH, stair.d))
+
+    // Sloped handrails with posts follow the rise rather than cutting across
+    // the steps as the former horizontal guard bars did.
+    const slope = -Math.atan2(rise, stair.d)
+    const run = Math.hypot(stair.d, rise)
+    for (const railX of [stair.x + 0.1, stair.x + stair.w - 0.1]) {
+      const rail = new THREE.BoxGeometry(0.085, 0.10, run)
+      rail.rotateX(slope)
+      rail.translate(railX, (y0 + y1) * 0.5 + 0.83, stair.z + stair.d * 0.5)
+      push('stairs|trim', rail)
+      for (let i = 0; i <= steps; i += 2) {
+        const t = i / steps
+        push('stairs|trim', slab(railX - 0.04, y0 + rise * t, stair.z + stair.d * t - 0.04, 0.08, 0.83, 0.08))
+      }
     }
   }
 
