@@ -1,386 +1,455 @@
-# SKT. AGNES — CURSOR MASTER DEVELOPMENT SPECIFICATION V1
-## Full gameplay, horror systems and production plan based on Design V2
+# SKT. AGNES — KOMPLET DANSK UDVIKLINGSPLAN TIL CURSOR V1
 
-Status: AUTHORED HANDOFF / NOT IMPLEMENTED. This is a development specification for Cursor, not a claim that the features are already in the game.
-Repository: Dartnation/SktAgnes
-**Implementation base branch: plan/cursor-gameplay-overhaul-v1**, itself descended from design/dark-world-props-and-audio-v2 → design/horror-hud-audio-direction-v1 → fix/audio-mix-and-spatial-cues.
-Target: browser / Three.js 0.170 / TypeScript / Vite / Vitest / Playwright.
-Product language: Danish.
-Last reviewed: 2026-11-20.
+## Gameplay, gyserhændelser, monster-AI, historie, lydintegration og kvalitetssikring med Design V2 som grundlag
 
-## 0. Non-negotiable work agreement
+**Status:** Programmeringsspecifikation og overdragelse til Cursor. De foreslåede funktioner er ikke alle implementeret endnu.  
+**Projekt:** \`Dartnation/SktAgnes\`  
+**Arbejdsgren:** \`plan/cursor-gameplay-overhaul-v1\`  
+**Designgrundlag:** \`design/dark-world-props-and-audio-v2\` → \`design/horror-hud-audio-direction-v1\` → \`fix/audio-mix-and-spatial-cues\`  
+**Teknologi:** Three.js, TypeScript, Vite, Vitest og Playwright.  
+**Sprog i spil og dokumentation:** Dansk. Engelske kodeidentifikatorer og biblioteksnavne bevares.  
+**Gennemgået:** 20. november 2026.
 
-The owner has explicitly divided the work:
-- **ChatGPT owns** visual art direction, geometry/material design, sound design, original sound assets, lighting look, UI presentation and visual approval.
-- **Cursor owns** all gameplay logic, gameplay architecture, inventory and interaction code, AI state/behavior, events, scheduling, mission logic, save/load, audio/lighting event integration, collision and pathfinding, unit/integration/e2e tests.
-- Cursor may adjust integration code around art, but does not silently replace or erase art decisions. Propose visual deviations or coordinate through a PR.
-- All gameplay features must use existing assets, or fall back gracefully when newer artwork/audio is not present. No dependency on expensive paid APIs or unavailable services at runtime.
-- Do not change production/main directly; do not overwrite unstaged local user work; do not reset/clean/stash other people's work without inspection and consent.
-- Never say "complete" just because TS compiles. Verify game behavior in browser.
-- Do not replace an entire module merely to implement a small change if a targeted refactor suffices. Preserve stable APIs until callers and tests have migrated.
-- Preserve story canon (Emil, Maja, Skt. Agnes 1987, Vogteren, journals, three keys, generator, evidence, rosary, archive code, multiple endings), current locations and all existing endings unless user approves story rewrite.
-- Preserve all seven existing MP3 recordings, both art design branches and existing sound pack ownership. Integrate originals without distributing third-party copyright assets without verified licenses.
+> **Til Cursor:** Læs HELE dette dokument, før du ændrer noget. Gennemgå den eksisterende kode, bevar det nye design og lydene, og begynd programmeringen i små, testbare opgaver. Undlad at bygge projektet om fra bunden. Spørg kun brugeren, hvis en virkelig væsentlig beslutning ikke kan løses sikkert.
 
-## 1. Product direction
+---
 
-**Fantasy**: You are investigative journalist Emil Kragh searching for missing colleague Maja in Skt. Agnes, a shut-down seaside institution. The asylum behaves as if someone still lives there. Information and sound are weapons. You are not meant to defeat the creature in combat; survive, observe, interpret and escape with proof.
+## 0. Arbejdsfordeling og ufravigelige regler
 
-**Four design pillars**:
-1. Dread over constant noise: silence, discovery, ambiguous traces and anticipation matter as much as pursuit.
-2. Understandable consequences: every noise/light/movement decision should have predictable risk; failure should feel fair.
-3. Environmental storytelling: 1987 documents, medical traces, power failures, hidden records and room design should advance the same mystery.
-4. Strong presentation: the V2 darkness, flashlight pools, creature silhouettes, detailed doors, room props and UI must be supported by intelligible interaction and reliable performance.
+Brugeren har aftalt følgende ansvarsfordeling:
 
-**Target experience**, to validate with playtest rather than claim as existing fact: first meaningful scare within ~5–8 min; a complete first run around 35–55 min; discoverable endings and clear optional secrets. Timing is a proposed design target, not an implemented fact. Never use a permanently repeating 10-second scare gimmick. Let fear alternate with exploration.
+**ChatGPT står for:** Visuelt udtryk, horror-stil, UI og HUD, materialer, udseendet af monstre, døre og rum, originale 3D- og lydaktiver, lyddesign og den visuelle retning for belysningen.
 
-**Player experience arc**:
-- Opening 0–8 min: arrive in Receptionen; notice unstable lights, a recording/letter, a door slam, recover flashlight, first low-risk environment puzzle. Monster is mostly inferred.
-- Exploration 8–22 min: choose room order, map gradually, use notes/keys, perceive audio hints and deliberate glimpses. Discover that noise attracts danger.
-- Threat 22–35 min: power and archive evidence change environment, unlocking progressively harder corridors. Monster gains a credible search behavior, not more random teleportation.
-- Finale 35+ min: solve final chain, retrieve proof, make an informed route/ending choice, dramatic exit with paced cooldown and final consequence.
-- Actual timestamps must respond to player progress. Never block advancement by an arbitrary wall-clock wait.
+**Cursor står for:** Al gameplayprogrammering, tilstandsmodeller, interaktioner, inventar, taster, missioner, gåder, monstrets AI, animationsstyring, gem/indlæs, hændelsesplanlægning, synkronisering af lyd og lys, kollision, navigation og automatiske tests.
 
-## 2. Verified baseline and concrete deficiencies
+**Sikkerhedsregler:**
+- Bevar de eksisterende figurer, miljøer, original lydpakke og Design V2. Erstat ikke ChatGPTs design uden at beskrive og begrunde ændringen.
+- Brug en særskilt udviklingsgren eller Git-worktree. Ændr ikke \`main\` direkte.
+- Kontrollér altid \`git status\`, inden der skiftes gren. Brugerens lokale ændringer og Cursors eksisterende arbejde må aldrig overskrives.
+- Ingen \`git reset --hard\`, \`git clean\`, tvunget push eller ukontrolleret \`stash pop\`.
+- Bevar historien om journalisten Emil Kragh, Maja, det lukkede Skt. Agnes, 1987, Vogteren, tre nøgler, sikringer/generator, journaler, kodegåden, rosenkransen og de fem eksisterende slutninger.
+- Gamle gemte spil skal fortsat kunne indlæses.
+- Eksterne aktiver kræver lovlig brugsret og dokumenteret oprindelse. Ingen betalte API-tjenester må være nødvendige for at spille.
+- En grøn TypeScript-build beviser IKKE, at gameplay, 3D-animation, lyd eller oplevelse fungerer. Test i en rigtig browser.
+- Del arbejdet i mindre pull requests, som kan gennemgås og rulles tilbage.
 
-The current V2 branch is a tested code baseline: 55/55 Vitest assertions and a TypeScript/Vite build passed in GitHub Actions. This does NOT prove a full browser playthrough or final artistic quality.
+## 1. Vision: Et sammenhængende, professionelt gyserspil
 
-Known module map:
-- src/game/Game.ts — ~2k lines: render, input, movement, AI calls, interaction, Director, save, UI orchestration.
-- src/game/Input.ts — keyboard edges, WASD, Ctrl/C, pointer lock.
-- src/player/PlayerController.ts — movement/grounding/crouch; smoothing helper exists.
-- src/ai/MonsterAI.ts + MonsterBrain.ts — model, paths and AI finite-state machine.
-- src/ai/senses.ts + Pathfinding.ts + presence.ts — noise, vision/LOS, A* and flashlight banishment.
-- src/ai/HorrorDirector.ts, src/horror/JumpscareEngine.ts, ScareLogic.ts, ScriptedEvents.ts — randomized/scheduled soft and hard events.
-- src/world/data.ts, buildWorld.ts, LevelBuilder.ts, SetDressing.ts, textures.ts — 3-floor environment, props and doors.
-- src/ui/UI.ts, minimap.ts, src/style.css — presentation; Design V1/V2 styling exists.
-- src/systems/Story.ts, Inventory.ts, catalog.ts, SaveSystem.ts, Settings.ts, battery.ts — persistent story/game state.
-- src/audio/AudioEngine.ts, clips.ts, mix.ts, steps.ts, voice.ts — Web Audio; MP3 recordings and original generated environmental cues.
-- src/render/PostFX.ts — SSAO/bloom/color pass.
-- tests/ and e2e/ — unit tests and Playwright tests, latter NOT yet verified in the new V2 branch.
+**Spilleroplevelse:** Emil Kragh leder efter Maja i et forladt, havnært hospital. Bygningen virker forladt, men et væsen patruljerer gangene. Spilleren overlever ved at være opmærksom, undersøge dokumenter, vælge sine ruter og kontrollere lys og støj — ikke ved at skyde sig igennem spillet.
 
-Code-grounded gaps to fix:
-- **I / Tab only reliably opens** inventory in Game.updatePlaying; opening inventory exits playing updates so key closing must be handled outside updatePlaying or via UI state routing.
-- **Objective UI reports mostly the 3 keys** through Story.objectives(), despite the much larger narrative puzzle chain.
-- **The map is an older small canvas**, with only visited/room/battery/monster information. Current design changed its CSS, not the underlying drawing.
-- **Director and scripted scares are separated** with cooldowns, but lack one coherent event reservation/cancellation policy, consequences and context budgets.
-- **Flashlight currently banishes/stops the visible monster** when beamHits succeeds; gameplay must distinguish repel, temporarily stun, and retreat with fairness, rather than assume infinite hard counter.
-- **Battery automatically recharges when turned off** at a fraction of drain. A proposed survival economy should intentionally balance spare cells and this mechanic, not accidentally make darkness meaningless.
-- **GameSnapshot/save version currently 1**. Added gameplay state must migrate and old saves must remain loadable.
-- **Some environment hooks are incomplete or disconnected** (e.g. setRadio is a no-op; Atmosphere currently has intentionally disabled dust/lightning). Do not try to fix these by scattering timers.
-- **AudioEngine.setTension currently clamps a 0–100 tension signal directly into a 0–1 normalized value**: adjust with explicit normalization before using it as a volume/probability input. Check whether chasing adds the intended small bias.
-- **Current sound source spatialization uses stereo panning**, not genuine HRTF; do not claim perfect 3D. Favor clarity and browser reliability.
-- **Old e2e scripts save screenshots to /opt/cursor/artifacts**, which is not portable to the owner's Windows PowerShell workstation.
-- New V2 furniture is present in PROPS and the world collision/nav generation; adding more must not block doorways, stair landings, secrets or softlock the monster.
-- Check hard-coded room aliases such as old r102 / morgue / chapel references when working with actual Danish room IDs in world/data.ts. Verify every event can happen in the real map, with diagnostics for unreachable branches.
+**Fire principper:**
+1. **Forventning frem for konstant larm.** Stilhed, spor og antydninger er vigtige. Undgå vedvarende tilfældige skrig og jumpscares.
+2. **Forståelige konsekvenser.** Løb, åbne døre, lys, støj og skjulesteder skal have logiske følger. Spillet skal være skræmmende, men retfærdigt.
+3. **Fortælling gennem omgivelserne.** Patientjournaler, medicinudstyr, fotografier, beskeder og rummenes tilstand afslører historien.
+4. **Design og funktion skal passe sammen.** Mørket gør lommelygten vigtig; lyde afslører, hvad der sker; monstre skal bevæge sig fysisk troværdigt.
 
-## 3. Technical architecture: new modules, small safe seams
+**Foreløbige mål til afprøvning, ikke færdige funktioner:** Første væsentlige uhyggelige hændelse efter ca. 5–8 minutter og en gennemspilning på omkring 35–55 minutter. Forløbet skal styres af spillerens opdagelser, ikke tvinges af timere.
 
-Keep Game.ts as a compatibility composition root while gradually extracting pure logic, instead of rewriting the renderer/AI/UI in a single PR.
+**Foreslået dramatisk forløb:**
+- **Indledning:** Receptionen med ustabilt loftlys, Majas besked, lommelygte, et spor og lyden af en dør, der smækker. Monsteret antydes, men angriber ikke straks.
+- **Udforskning:** Spilleren vælger rute, samler dokumenter, finder nøgler, bruger kortet og lærer, hvilke lyde der er farlige.
+- **Opbygning:** Strøm, arkivfund og beviser ændrer bygningen. Vogteren bliver mere opmærksom, men er stadig bundet af syn og hørelse.
+- **Finale:** Sidste gåder, valg af udgang og konsekvenser af de beviser, som spilleren har fundet.
 
-Proposed modules, names may vary if existing conventions suggest better:
-- src/game/GameEvents.ts: typed event union, in-memory dispatcher and epoch/time metadata.
-- src/game/GameClock.ts: frame-time scheduling, deterministic game time and cancellation.
-- src/game/ModeController.ts: menu/playing/inventory/examine/paused transitions and focus/pointer lock.
-- src/game/InteractionSystem.ts: proximity, line-of-sight, targets, priority, range, actions and prompts.
-- src/game/ObjectiveSystem.ts: declarative story graph, prerequisites, journal entries and hint levels.
-- src/game/EventScheduler.ts: deterministic, room-aware ambient/horror event placement.
-- src/game/PerceptionSystem.ts: player-generated noises, visibility, occlusion and AI sensory facts.
-- src/game/ResourceSystem.ts: battery/stamina/healing tuning and item consumption.
-- src/game/WorldState.ts: persistent interactive-object and room changes.
-- src/game/GameplayTelemetry.ts: debug counters available only for test/debug builds.
-- src/audio/AudioCueAdapter.ts: translates typed game events into sounds without duplicating mixer logic.
-- src/ui/MinimapRenderer.ts or revise src/ui/minimap.ts: pure vector drawing from state.
+## 2. Bekræftet teknisk grundlag og fundne mangler
 
-A minimal typed event contract (illustrative TypeScript, implement fully and test):
+Den tidligere Design V2-version bestod senest 55/55 Vitest-tests og en TypeScript/Vite-build. Det er **ikke** dokumentation for en fuld manuel gennemspilning.
 
-    type GameEvent =
-      | { type: 'PLAYER_STEP'; surface: 'tile'|'wood'|'metal'|'concrete'; distance: number; playerPos: Vec3 }
-      | { type: 'DOOR_MOVED'; doorId: string; from: number; to: number; position: Vec3 }
-      | { type: 'PICKUP_TAKEN'; pickupId: string; itemId: string; position: Vec3 }
-      | { type: 'LAMP_CHANGED'; lightId: string; level: number; position: Vec3 }
-      | { type: 'OBJECTIVE_COMPLETED'; objectiveId: string }
-      | { type: 'MONSTER_SENSE'; sense: 'noise'|'sight'|'flash'; position: Vec3 }
-      | { type: 'SCARE_REQUEST'; id: string; roomId: string; severity: 'soft'|'hard' }
+**Eksisterende systemer:**
+- \`src/game/Game.ts\`: Samlingspunkt på omkring 2.000 linjer med input, interaktion, opdatering, AI, UI, lyd og lagring.
+- \`src/game/Input.ts\`: WASD, Ctrl/C, tastetryk og pointer lock.
+- \`src/player/PlayerController.ts\`: Bevægelse, hop, kollision, krybning og glidende kamerahøjde.
+- \`src/ai/MonsterAI.ts\`, \`MonsterBrain.ts\`, \`Pathfinding.ts\`, \`senses.ts\`, \`presence.ts\`: Vogteren, tilstandsmodel, sti, syn, hørelse og lommelygtens påvirkning.
+- \`src/ai/HorrorDirector.ts\`, \`src/horror/JumpscareEngine.ts\`, \`ScareLogic.ts\`, \`ScriptedEvents.ts\`: Spænding, hændelser og skræmmeeffekter.
+- \`src/world/data.ts\`, \`buildWorld.ts\`, \`LevelBuilder.ts\`, \`SetDressing.ts\`: Rum, døre, trapper, møbler, kollision og set-dressing.
+- \`src/ui/UI.ts\`, \`minimap.ts\`, \`src/style.css\`: Brugerflade, inventar og minimap.
+- \`src/systems/Story.ts\`, \`Inventory.ts\`, \`catalog.ts\`, \`SaveSystem.ts\`, \`Settings.ts\`, \`battery.ts\`: Historie, genstande, gemninger, indstillinger og ressourcer.
+- \`src/audio/AudioEngine.ts\`, \`clips.ts\`, \`mix.ts\`, \`steps.ts\`, \`voice.ts\`: Optagelser, procedurale miljølyde, lydstyring og fodtrin.
+- \`src/render/PostFX.ts\`: Bloom, farver, skygge-/omgivelseseffekter.
+- \`tests/\` og \`e2e/\`: Vitest- og Playwright-tests.
 
-All events get runtime metadata: eventId, sourceId, gameTime, epoch, position/floor, and optional correlationId.
-- Emit a single event for each confirmed state transition, not each render frame.
-- Components subscribe with explicit unsubscribe/dispose, no accumulating event listeners on save reload.
-- Do not mutate snapshots from inside render callbacks.
-- Inject deterministic RNG/clock into Director/AI tests. Use a game-time clock, not wall time for story sequences.
-- Event/audio jobs have scene/mode epoch tokens so stale cues are canceled on load/new game/menu.
-- Buffer input edges and handle mode transitions once per frame. Never fire gameplay actions when inventory, pause or keypad owns keyboard focus.
-- For collision-critical changes always test both static and opened doors, crouched and standing player, stairs, AI nav and old saves.
+**Vigtige problemer at løse:**
+- \`I\`/\`Tab\` åbner inventaret i \`Game.updatePlaying\`, men lukningen skal håndteres, selv om gameplayopdateringen er sat på pause.
+- Missionsvisningen i \`Story.objectives()\` fokuserer primært på tre nøgler, selvom spillet indeholder sikringer, arkiv, beviser og flere slutninger.
+- Minimapet er stadig tegnet som en enkel canvas-visning. CSS alene gør det ikke til et professionelt kort.
+- Flere gysersystemer kan udløse hændelser. De skal koordineres, så de ikke skaber gentagelser, overlappende effekter eller ulogiske situationer.
+- Lommelygten påvirker Vogteren; den bør ikke være et ubegrænset værn.
+- Batteriet genoplades langsomt, når lyset er slukket. Det skal balanceres bevidst.
+- Gemmeformatet er stadig version 1 og kræver eventuelt migration ved større nye systemer.
+- \`AudioEngine.setTension\` modtager et 0–100-tal, men behandler det som et 0–1-niveau. Det skal normaliseres.
+- \`setRadio\` er endnu ikke en virkelig radioafspilning; nogle atmosfærefunktioner er bevidst deaktiveret.
+- Ældre rum-ID'er som \`r102\` skal kontrolleres mod de aktuelle rumdata, så planlagte hændelser faktisk kan udløses.
+- Playwright gemmer enkelte screenshots i \`/opt/cursor/artifacts\`; gør testen kompatibel med Windows via Playwrights output-stier.
+- Nye møbler kan ændre ganglinjer og AI-ruter. Test alle vigtige passager, især trapper og døråbninger.
 
-## 4. Ordered execution: P0 foundations (ship before new mechanics)
+## 3. Arkitektur: Opdel logikken uden at starte forfra
 
-P0-01. Branch and baseline.
-- Start a new branch from this plan branch, e.g. feature/cursor-gameplay-v1. Do not work in main or overwrite visual PRs.
-- Verify clean tree with git status and log. If local changes exist, preserve them by a new worktree or independently committed branch, not force checkout.
-- Run npm ci, npm test, npm run build, npm run test:e2e and npm run test:audio. Record passes, failures and why; e2e browsers may require npx playwright install.
-- Set deterministic test fixture and output screenshots via Playwright testInfo.outputPath(), not the hard-coded /opt/cursor/artifacts path.
-- Inspect browser errors, missing audio requests, asset decoding, GPU FPS and start-room visuals.
-Acceptance: current story/menu/door/audio/save behavior baseline recorded, before refactoring.
+Behold \`Game.ts\` som samlingspunkt, men flyt gradvist ansvar til små, testbare moduler.
 
-P0-02. Inventory mode and input focus.
-- I and Tab toggle inventory open and closed; Escape closes it and returns to playing (or parent screen as appropriate).
-- New inventory layout continues to show keys, notes, batteries and items with real descriptions/counts.
-- Keep selection stable by itemId rather than array index when items are removed.
-- In inventory/paused/examine/keypad, player movement and monster simulation remain paused according to current modal semantics.
-- Pointer lock should exit on open and only request re-lock on permitted user gesture; show a graceful click-to-resume prompt if browser denies auto relock.
-- Never consume Ctrl/keyboard shortcuts while typing in inputs or focused controls.
-- Test inventory from playing, pause, examine and return; no duplicate item consumption, no escape trap.
+**Foreslåede moduler:**
+- \`src/game/GameEvents.ts\`: Typebestemte hændelser og abonnementer.
+- \`src/game/GameClock.ts\`: Spiltid, planlagte handlinger, pauser og aflysning.
+- \`src/game/ModeController.ts\`: Menu, spil, pause, inventar, undersøgelse og fokus.
+- \`src/game/InteractionSystem.ts\`: Synslinje, afstand, prioriteret objekt og handling.
+- \`src/game/ObjectiveSystem.ts\`: Missionsgraf med afhængigheder.
+- \`src/game/EventScheduler.ts\`: Samlet hændelsesstyring for gys og historie.
+- \`src/game/PerceptionSystem.ts\`: Hørelse, syn, observationer og skjul.
+- \`src/game/ResourceSystem.ts\`: Batteri, udholdenhed og helbred.
+- \`src/game/WorldState.ts\`: Vedvarende dør-, rum- og objekttilstand.
+- \`src/game/GameplayTelemetry.ts\`: Testmålinger.
+- \`src/audio/AudioCueAdapter.ts\`: Forbinder hændelser til lyde uden at erstatte lydmixeren.
 
-P0-03. Audio/visual event integrity.
-- Preserve single-stride footstep playback from actual displacement only (never phantom footstep or input keydown). Stop live sound on stop, hiding, pause and load.
-- Normalize tension 0–100 to 0–1 before driving sound gain. Example: clamp01(tension/100 + (chasing ? 0.2 : 0)).
-- Event audio obeys master/music/effects sliders, including absolute zero; use limiter and headroom.
-- Stale queued sounds must expire; linked light/door sounds only play when corresponding event actually occurs.
-- No phantom footsteps disguised as ambient loops. Distant noises can be metal, vent, door creak or a deliberate scripted character sound clearly distinct from player steps.
-- Browser AudioContext resume must follow trusted click/key gesture; fetch/decode failures show in F4 diagnostics without crashing.
-- Define asset manifest with optional content URLs and fallback procedural cues. ChatGPT-supplied original WAV pack can be imported into public/assets/audio after user gives Cursor the zip. Avoid loading every big WAV twice.
-Acceptance: 20 seconds stationary produces zero footsteps, moving begins steps at correct travel distance, pause cancels, SFX 0 mutes all effects, no queued scream after restore.
+**Eksempel på typebestemte hændelser:**
 
-P0-04. Save safety and stable transitions.
-- Keep existing GameSnapshot v1 readable. Add v2 migration only if additional persisted fields are essential.
-- Design one parse/validate/migrate/sanitize path (untrusted localStorage, no arbitrary trust in corrupted values).
-- Store objective flags and event-history IDs so one-time scares, pickups and opened passages do not respawn.
-- Keep saves atomic from gameplay perspective and include sensible fallback for a missing/invalid object ID.
-- Restore player near an obstructed object to nearest safe nav point, without teleporting through a locked gate.
-Acceptance: old save, new save, reload, restart and death all behave; inventory and monster reset once; test malformed/partial save.
+\`\`\`typescript
+type GameEvent =
+  | { type: 'PLAYER_STEP'; surface: 'tile' | 'wood' | 'metal' | 'concrete'; distance: number; pos: Vec3 }
+  | { type: 'DOOR_MOVED'; doorId: string; from: number; to: number; pos: Vec3 }
+  | { type: 'PICKUP_TAKEN'; pickupId: string; itemId: string; pos: Vec3 }
+  | { type: 'LAMP_CHANGED'; lightId: string; level: number; pos: Vec3 }
+  | { type: 'OBJECTIVE_COMPLETED'; objectiveId: string }
+  | { type: 'MONSTER_SENSE'; sense: 'noise' | 'sight' | 'flash'; pos: Vec3 }
+  | { type: 'SCARE_REQUEST'; id: string; roomId: string; severity: 'soft' | 'hard' }
+\`\`\`
 
-## 5. P1 primary gameplay features
+Alle hændelser skal have entydigt ID, kilde-ID, spiltid, scene-\`epoch\` og eventuelt \`correlationId\`. En hændelse udsendes **én gang ved en faktisk tilstandsændring**, ikke for hvert renderet billede.
 
-P1-01. Progression and objectives — actually use the asylum story.
-Build a declarative quest graph rather than only "3 keys":
-- M1: Read Maja's message / establish why Emil came.
-- M2: Explore Receptionen, find flashlight clue and first map landmark.
-- M3: Discover generator need; locate and install three fuses.
-- M4: Follow archive clue, reconstruct founding year / safe code.
-- M5: Recover keys via chapel, operating room and archive, preserving current unlock semantics.
-- M6: Discover secret passage or documents that implicate the asylum.
-- M7: Retrieve evidence and decide exit route; optional journals/rosary affect ending.
-Requirements:
-- Each node: id, stage, prerequisites, trigger events, UI text, optionalHint, completion consequences and save version.
-- Show a single human-readable current task + short contextual subtask, not a raw checklist of all secrets.
-- No objective activates before it becomes knowable; no spoilers for hidden wing/ending.
-- Door labels, room names and item descriptions must use actual world/data IDs/catalog.
-- Optional clues/revisitable rooms prevent players from being stuck because they missed one note.
-Acceptance: scripted playthrough proves every mandatory progression route and each ending condition remains reachable.
+**Tekniske krav:**
+- Afmeld event-lyttere ved oprydning og indlæsning. Undgå dobbelte listeners.
+- Brug deterministisk tilfældighed og et kontrollerbart ur i tests.
+- Ved nyt spil/indlæsning ændres \`epoch\`, så gamle hændelser og lydjobs afvises.
+- Tastaturinput håndteres efter aktiv spiltilstand. Ingen gameplaytaster under et aktivt tekstfelt eller inventarmodal.
+- Kollision og navigation skal testes efter hver større ændring i rum, døre eller props.
+- Refaktorér trinvis; lav ikke en gigantisk omskrivning af motoren.
 
-P1-02. Interaction and exploration.
-- Center-screen target selection by LOS, reachable distance, visible prompt, interactable state and priority.
-- Explicit states for doors: closed, opening, open, closing, locked, jammed, blocked. State changes can animate leaf/handle and output paired audio.
-- Doors must never hit the player's collision capsule, be blocked by set dressing, or clip through a solid wall after opening.
-- Cabinets/drawers may expose existing items/papers; no invented procedural loot that bypasses key progression.
-- Individual props use stable IDs; define art-only versus interactable. Decorative jars should not unexpectedly block narrow walkways.
-- Add inspection view for meaningful documents (rotate/zoom optional) and a simple clue notebook. Avoid complex item combining unless puzzle demands it.
-- A held item action must be explicit and reversible; consuming unique clues accidentally is unacceptable.
-Acceptance: keyboard/mouse controller complete interactions; cannot pick an item twice; cannot interact through closed door; no object disappears from save after reload.
+## 4. P0 — Grundlæggende stabilitet, før nye funktioner
 
-P1-03. Monster behavior that scares but is beatable.
-Reuse MonsterBrain finite-state machine and pathfinding.
-- Behavior layers: Patrol → Suspicious/Investigate → Search → Chase → LostPlayer → Return. Do not make the creature omniscient.
-- Noise investigation uses origin, loudness, floor, occlusion and age. Running/doors/drops generate stronger noise than crouching.
-- Hearing draws an uncertainty region, not perfectly pinned player coordinates after every quiet sound; clue age degrades.
-- Sight requires floor-correct LOS and peripheral detection time. Briefly crossing a corridor must not cause instantaneous perfect tracking.
-- Suspense cues: distant visible outline, head turn, pause at doorway, deliberate search by bed/closet, audible breathing, lantern/metal scrape.
-- Flashlight interaction is a *limited tactical counter*, not permanent invulnerability: short stagger or forced glance/retreat with cooldown, depending on difficulty. Preserve visibility fairness and original design.
-- Search/hiding: closet/bed safety is conditional; monster reacts to witnessed entry, recent noise, breath-holding and dwell time, but may abandon search.
-- Cooldowns, speed and attack recovery must be tuned to avoid stunlocks or impossible escapes. Avoid unfair spawn inside player's FOV, on top of player or directly behind an in-use door.
-- Reinforce separation of visual silhouette from AI. ChatGPT owns monster look; Cursor only adjusts rig/hitbox if needed for fairness.
-- Use fixed AI tick or time-budgeted updates with interpolation; re-path at bounded intervals and after real blockers change.
-Acceptance: test no-line-of-sight aggression, hearing through wall attenuation, stairs + doors, recovery, chase escape, flashlight response and no patrol stuck > threshold.
+### P0-01: Sikker start og førmåling
+1. Opret arbejdsgren fra denne plangren uden at overskrive lokale ændringer.
+2. Kontrollér \`git status\` og notér aktuelle commits.
+3. Kør \`npm ci\`, \`npm test\`, \`npm run build\`, \`npm run test:e2e\` og \`npm run test:audio\`.
+4. Hvis Playwright mangler browsere, dokumentér behovet for \`npx playwright install\`.
+5. Flyt screenshots til \`testInfo.outputPath('billede.png')\`.
+6. Gem baselineresultater, browserfejl, manglende assets, billedmateriale og målte FPS.
 
-P1-04. Central horror dramaturgy / dynamic pacing.
-Keep existing HorrorDirector, ScareLogic, ScriptedEvents and JumpscareEngine but let one scheduler arbitrate all cues:
-- Director input: room visited history, progress stage, elapsed calm time, light conditions, noise made, monster proximity/visibility, recent cues, hiding, player health and audio.
-- A five-stage emotional loop: calm → anticipation → implication → encounter → recovery. No sudden chain of three loud scares.
-- Minimum quiet/recovery window after major scare; avoid overlapping hard scares with attacks, puzzle completion, objective overlays or paused inventory.
-- Hard scares should be limited, authored and distinctive: first broken fixture, reflected orderly, patient chart with new name, wardrobe breath, disappearing body in surgery, bell ringing at the wrong floor, corridor that briefly seems occupied.
-- Soft events are room-specific and plausible, not arbitrary scream anywhere. Never invoke telephone sound at a location the player cannot plausibly hear.
-- Add a per-room budget and event-history IDs; the same unique apparition occurs once per save unless explicitly authored as repeatable.
-- Weighted selection must depend on what the player has already witnessed. Use deterministic seeded RNG in tests.
-- Reserve/defer/cancel events at scene transition boundaries; obey max overlapping source count and per-category cooldown.
-- Environmental changes can tell a story: shifted records, door left ajar, chair slightly moved, fresh wet footprints as **visual decals** (not fake audio footsteps), faded radio voice. Tie occurrence to progress, persist them.
-Suggested tuning START POINTS, not guarantees:
-  - 5–12 seconds of relatively calm transition before any first special event.
-  - Soft moment about every 25–75 seconds when conditions permit, sometimes none.
-  - Major encounters about 3–7 minutes apart, always with progression and recovery exceptions.
-  - Never run a probabilistic jump-trigger independently every rendered frame without time-based gating.
-Acceptance: 20-minute AI-seeded automated run has no overlapping hard events, no event during inventory, no repeating unique scare and no impossible chase.
+**Godkendelseskriterium:** Førtilstanden er dokumenteret, før systemerne ændres.
 
-P1-05. Flashlight, darkness and limited resources.
-- Tune the V2 lighting after actual visual capture. Player needs flashlight to inspect corners, but can still orient using silhouettes and a few genuine practical lamps.
-- Battery should present clear decisions. Existing passive off-state recharge may remain if intentionally balanced; otherwise switch to scarce cell replacement with explicit difficulty settings and migration. Do NOT silently remove recharge.
-- Flashlight beam has battery-dependent intensity/flicker and meaningful visual reach; avoid blinding white walls.
-- Dark adaptation and readable outlines should preserve navigation and accessibility; no screen-wide full-black strobing.
-- Monster sees the flashlight **source** differently from player seen in ambient light, but not through walls/floors.
-- Physical fuse/generator changes should affect world lamps and sound in persistent states.
-- Light flicker and electrical buzzing should share sourceId/eventId and visual envelope. A purely sine-based light shouldn't generate many separate noise cues.
-Acceptance: side-by-side 30s visual/audio test in Receptionen flashlight ON/OFF; room paths navigable, outside beam still genuinely dark, no epilepsy-risk fast strobe.
+### P0-02: Inventar med I/Tab/Escape
+- \`I\` og \`Tab\` åbner og lukker inventaret. \`Escape\` lukker det eller går tilbage til korrekt overordnet skærm.
+- Spilleren må ikke bevæge sig eller udføre andre handlinger, når inventar, pause eller kodefelt har fokus.
+- Genstande identificeres stabilt ved \`itemId\`, ikke kun listeposition.
+- Frigiv pointer lock ved åbning; gendan det kun efter en brugerhandling, som browseren accepterer.
+- Keyboard-input i tekstfelter må ikke aktivere spilgenveje.
+- Ingen genstand må blive brugt to gange via dobbelt eventhåndtering.
 
-P1-06. Minimap and inventory UI behavior.
-- Keep ChatGPT CSS art direction. Cursor handles rendering logic and interactions only.
-- Current floor, only discovered rooms, coherent walls/doors, objective waypoint if discoverable, orientation cone, accurate player location and floor transitions.
-- Never reveal locked secret rooms before a clue or discovery. Monster indicator must have diegetic justification (e.g. scarce journal/trace) rather than permanent GPS.
-- High-DPI canvas: CSS pixel sizes vs canvas backing width/height; round pixel values for sharp strokes, avoid stretching. Test at scale 1 / 1.5 / 2.
-- Inventory keyboard navigation, type/category filtering only if warranted, meaningful item icons/labels, and a clearly selected item; no duplicating interaction handlers.
-- Keys usable in place only, documents inspectable, batteries consumable, fragile clues not droppable. Avoid inventing real-time inventory crafting.
-- Focus management, Escape/I closing, pointer lock and paused simulation must work reliably.
-Acceptance: keyboard-only open/select/inspect/close, saves maintain selection when practical, minimap does not expose unvisited floor.
+**Test:** Inventar åbner/lukker, musen fungerer, pause/undersøgelse fungerer, og ingen tastaturfælde opstår.
 
-## 6. P2 meaningful extras once P0/P1 work
+### P0-03: Pålidelig lyd
+- Spillerfodtrin må **kun** komme fra tilbagelagt afstand, ikke tastetryk eller tilfældige gyserhændelser.
+- Stop aktive skridt ved stilstand, skjul, pause, død, indlæsning og sceneskift.
+- Normalisér spændingsniveauet før lydstyring, eksempelvis \`clamp01(tension / 100 + (chasing ? 0.2 : 0))\`.
+- Master, musik og effekter skal alle kunne stilles helt til 0. Skrig må ikke omgå effektvolumen.
+- Undgå for høje toppe, overlap af stingers og gamle lyde, der afspilles efter resume.
+- Kobl dør-, lampe- og genstandslyde til den faktiske hændelse.
+- AudioContext startes efter en gyldig brugerhandling. Registrér og vis manglende lydfiler.
 
-P2-01. Three signature cinematic sequences using existing spaces, all driven by state and sound:
-- **Receptionen — the hospital wakes**: three fixtures dim in asymmetric sequence, electrical buzz drops out, one distant door closes, objective changes and Maja message hints at the archive. Not a full-screen jump face.
-- **Arkivet — names and dates**: loose files reveal 1987 contradictions, a flickering desk corner shows a silhouette only after inspection; the player can choose to leave and return, not a forced unavoidable grab.
-- **Operationsstuen/Obduktion — the witness**: a gurney shifts, medical trolley rattles, emergency lamp dies, masked orderly appears in a framed doorway then vanishes if observed too long. Unique, persist completed flag.
-Each sequence needs authored prerequisites, staging positions, escape route, recovery, audio cues, save identifier, and screenshot test.
+**Test:** 20 sekunder stille = ingen fodtrin. Effektvolumen 0 = ingen effektlyd. Pause/indlæsning = ingen forsinkede skrig.
 
-P2-02. Environmental behavior with low computation:
-- Ambient drips and hum local to a real position and room; door creaks only if a relevant door moves, pipes only near geometry; sounds obey distance/occlusion and cooldown.
-- Clock or music box, telephone, old radio, ventilation fan, water leak and occasional distant bell only where appropriate. Use verified source positions and no phantom player steps.
-- Small object changes: flicker, swinging curtain, displaced paper, intermittent reflection, changing framed portrait. These should be seeded and deterministic/persistent if player can inspect them.
-- Few but meaningful room interactions beat hundreds of generic pickup items. Every major room should contribute clue, risk, character or payoff.
+### P0-04: Sikker gemning
+- Bevar gamle v1-gemte spil.
+- Tilføj kun v2-felter med kontrolleret migrering og validering.
+- Gem færdige engangshændelser, opsamlede genstande, åbne døre, missioner og nødvendige rumbegivenheder.
+- Ukendt eller ødelagt lokal JSON må ikke få spillet til at bryde sammen.
+- Indlæst position må ikke være inde i vægge, inventar eller en låst passage.
+- Ved nyt spil skal midlertidige monstre, lyde, planlagte jobs og interaktionsdata nulstilles præcist én gang.
 
-P2-03. Accessibility and player comfort.
-- Separate volume sliders, subtitles for meaningful environmental dialogue, readable Danish fonts, safe contrast, configurable mouse sensitivity and invert-Y.
-- Reduced flashes, low/no camera shake, reduced chromatic effects, headbob control, motion blur opt-in, brightness calibration image and key remap if feasible.
-- Paused game releases pointer lock and all gameplay actions; no sensory overload or unavoidable repeated sudden loud screams.
-- Optional hint mode vs immersive exploration; don't spoil hidden content by default.
+**Test:** Gamle/nye gemninger, genstart, dødsfald, fejlbehæftede data og alle slutningsforløb.
 
-P2-04. Performance and load.
-- Aim at smooth 60 FPS at 1366x768 medium on a sensible Windows laptop, with explicit measured floor. Don't declare that target already achieved.
-- High-quality LOD/instancing for repetitive furniture, bound room lights and dynamic shadows; cap draw calls and light counts. Avoid cloning many unique materials per door if material sharing possible; dispose geometry/textures on reset.
-- Lazy load/decode room-specific audio and render content where helpful, without blocking first-room experience.
-- Precache first-room assets; avoid decode audio on main frame; guarantee fallbacks for fetch failure.
-- A simple visible performance overlay / console counters for draw calls, triangles, audio nodes, events and AI path recalculations only in test/debug.
+## 5. P1 — Bedre gameplay, monstre og historie
 
-## 7. Engineering contracts and deterministic algorithms
+### P1-01: Et rigtigt missionssystem
 
-A. Scheduling and event gating
-- Use gameTime seconds; avoid polling Date.now for game events.
-- A scheduler entry has id, kind, dueTime, roomId, epoch, priority, exclusiveGroup, duration, conditions and canceled boolean.
-- If mode is not playing, do not advance gameTime; hold pending tasks without letting past wall clock events "catch up".
-- For any save/new game: increment epoch; discard all old-epoch audio/light/interaction callbacks.
-- Scheduler picks highest-priority eligible event and atomically reserves exclusiveGroup e.g. HARD_SCARE, DOOR_SEQUENCE, OBJECTIVE_CINEMATIC.
-- Never enqueue more than one hard scare or multiple dialogue voice events at once.
-- Use a pseudo-random function with explicit seed. Expose seed in debug but not release UI.
+Udvid den eksisterende historie med en deklarativ missionsgraf:
 
-B. Inventory transactions
-- State transitions are pure: given inventory + command, return nextState + typed event(s).
-- Reject unknown IDs, insufficient quantities, duplicate pickups and non-droppable story keys.
-- Commit the state update before publishing pickup/use audio and UI events, so reloads are idempotent.
-- On save restore, rebuild visible pickups from pickedUp list and never consume the same pickup twice.
+- **M1:** Læs Majas besked og forstå, hvorfor Emil er kommet.
+- **M2:** Undersøg Receptionen og få de første oplysninger om bygningen.
+- **M3:** Find tre sikringer, og få generatoren i gang.
+- **M4:** Undersøg arkivet og forstå datoerne/koden til pengeskabet.
+- **M5:** Find nøglerne fra kapel, operationsstue og arkiv.
+- **M6:** Find den skjulte forbindelse, journalerne og beviserne.
+- **M7:** Åbn en udgang; valgfri dokumentation, journaler og rosenkrans påvirker slutningen.
 
-C. AI detection loop
-- Sensors generate observations {source,type,position,confidence,gameTime}.
-- Observations decay based on age, occlusion, floors and source confidence.
-- MonsterBrain chooses action; Pathfinding resolves route; actor controls leg animation and transform.
-- No direct mutation of monster state from UI rendering or audio callbacks.
-- Define a reachability guard and recover if route blocked. No instant warp onscreen.
+Hver mission skal have stabilt \`id\`, forudsætninger, trigger, dansk tekst, valgfri hjælp og gemt status. Vis kun kendte mål. Undgå spoilers for skjulte rum. Tillad, at spilleren vender tilbage efter oversete dokumenter.
 
-D. World object transitions
-- All interactable objects have stable IDs with states persisted only if needed.
-- Doors and props share world coordinates and collision, not independent hard-coded lists.
-- Generated art-only objects must not acquire collision accidentally. Recheck door swing clearance.
-- Clamp camera/light geometry within valid bounds and update door occlusion when opening.
+### P1-02: Døre, genstande og undersøgelse
+- Vælg objekt ud fra synslinje, afstand og central sigteretning.
+- Skeln mellem dørtilstande: lukket, åbner, åben, lukker, låst, klemt og blokeret.
+- Håndtag, dørblad, kollision og lyd skal følge samme tilstand.
+- Låste døre og rekvisitter må ikke klippe gennem spilleren eller spærre en kritisk passage.
+- Skuffer, skabe og journalmapper kan undersøges; unikke nøgler må ikke dukke op tilfældigt.
+- Genstande har vedvarende ID'er og kan ikke samles op to gange.
+- Dokumenter vises tydeligt, eventuelt i en særskilt undersøgelsesvisning.
+- Genstande, der er vigtige for historien, må ikke kunne destrueres ved en fejl.
 
-E. Rendering and graphics
-- Keep existing renderer postprocessing and V2 styling; expose tuning parameters for ambient/exposure but avoid putting game mechanics in shader.
-- Brightness control must not undermine intended flashlight challenge at max setting; don't remove accessibility option.
-- Distant darkness via fog and low practical light, rather than simply a black screen.
-- All dynamic fixtures must set actual light intensity and matching emissive material level.
+### P1-03: Vogteren skal være intelligent, skræmmende og til at undslippe
 
-## 8. Specific source-file change plan
+Brug den eksisterende \`MonsterBrain\`, \`MonsterAI\`, \`Pathfinding\` og \`senses\`.
 
-Do not edit everything at once. Review file ownership:
-- Game.ts: call new gameplay services and keep orchestration, no second giant switch statement. Split by subsystem in incremental PRs.
-- Input.ts: mode-aware routing, I/Tab/Escape toggle and focus safety.
-- UI.ts: bind inventory selections and already existing hooks. Preserve element IDs and src/style.css.
-- ui/minimap.ts: replace renderer, expose pure state-dependent draw, pixel ratio handling.
-- systems/Story.ts: authoritative declarative objective graph and status; adapt ending conditions only when tested.
-- systems/Inventory.ts / catalog.ts: strictly validated item commands and persistent inventory semantics.
-- systems/SaveSystem.ts: migrations and atomic restore; schema tests.
-- ai/MonsterBrain.ts / MonsterAI.ts / senses.ts: sensory history, fair chase/lose target, path query, flashlight costs; visual meshes left intact.
-- horror/HorrorDirector.ts / ScriptedEvents.ts / ScareLogic.ts: coordinate event scheduler, reduce RNG spam, persistent history.
-- audio/AudioEngine.ts: normalize tension, integrate ChatGPT art assets/manifest and event-based playback; never rewrite the mix graph without tests.
-- world/buildWorld.ts / data.ts: stable room/door/prop IDs, collision/nav checks and interaction metadata; do not overwrite dressing art.
-- render/PostFX.ts: leave visuals to ChatGPT unless quality/compatibility fix required, then isolate and document.
-- e2e/game.spec.ts, events.spec.ts and new e2e specs: cross-platform screenshots and full interactions.
-- Add docs for controls, gameplay state, save migration, benchmarks and changed event contracts.
+**Tilstandsforløb:** Patrulje → Mistanke → Undersøgelse → Søgning → Jagt → Mistet spor → Tilbagevenden.
 
-## 9. Minimum test matrix (must be automated where feasible)
+- Lyd giver et omtrentligt område, ikke spillerens præcise position.
+- Hørelse afhænger af lydtype, distance, etage, lukkede døre og lydens alder.
+- Syn afhænger af faktisk synslinje, synsvinkel og observationstid. Ingen syn gennem vægge.
+- Monsteret kan stoppe ved døråbninger, lytte, kigge sig omkring, undersøge skabe/senge og lede efter spilleren.
+- Skjul skal have konsekvenser. Monsteret kan undersøge et skjulested, hvis det så spilleren gå derind eller hørte støj.
+- Spilleren skal kunne miste monsteret ved at bruge afstand, mørke, lyd og rutevalg.
+- Lommelygte kan give en kortvarig taktisk fordel, men må ikke skabe permanent usårlighed.
+- Undgå synlig teleportering til spilleren, angreb gennem vægge, ustoppelig kædejagt eller monster, der låser sig fast på en trappe.
+- Opdater ruter ved relevante hændelser og med begrænset frekvens, ikke for hvert billede.
 
-S0: npm test, npm run build, e2e Chromium, e2e Firefox when browser environment supports it. Stop when any baseline regression is unexplained.
-S1: I/Tab open-close inventory; Esc handling; pointer lock; menu/paused/keypad/examine focus.
-S2: Stationary, walk, sprint, crouch, jump, hide, pause, save and reload: no phantom footsteps, no overlapping step burst.
-S3: Three floors and stairwell: accessible via both directions, no teleport or clip; every required pickup and door reachable with and without new props.
-S4: Monster patrol/investigate/search/chase + hearing and LOS; remains fair and can lose player, not trapped by new furniture.
-S5: All 3 keys, generator, safe, evidence, journal notes, rosary and exit routes persist. All 5 ending branches remain available.
-S6: Director event replay: 10 seeded timelines with correct cooldowns, no event while paused, no double unique jumps.
-S7: Audio 0/master 0/music 0/effects 0, resume after mute, SFX peaks, stale cue drop, broken or absent WAV fallback.
-S8: Saves v1 and v2 (if introduced), corrupt JSON, incomplete fields, duplicate item IDs, invalid room and missing pickup.
-S9: Lighting stress: darkness enough to need flashlight, but game routes visible. Fixture buzz sync, no synchronized rapid blackout.
-S10: UI: 1920x1080 / 1366x768 / small mobile width for layout, though gameplay itself is desktop-first. No map/objective overlap.
-S11: Performance: 5 minutes roaming with FPS counters, heap/audio-node growth, repeated reload/restart memory leak.
-S12: Browser tests confirm no console errors or asset responses 404 and all exit/collision states.
+**Test:** Synslinje, høreafstand, trapper, døre, skjul, jagt, tabt spor, cooldown og fair flugt.
 
-Proposed test fixture design:
-- Unit: pure rules, seed and state reducers, event budget, snapshots, item transactions, objective graphs.
-- Integration: fake AudioClock/GameClock + fake adapters for UI/audio, check sequence and side-effect counts.
-- E2E: use the existing test-mode API window.__AGNES__ for controlled teleport/movement/monster, but validate real keyboard events and player-visible UI as well.
-- Screenshot evidence to testInfo.outputPath('scene-name.png') on all platforms, not /opt/cursor/artifacts.
-- Readme should state exactly which checks were run and which were skipped (browser or actual audio monitoring unavailable).
+### P1-04: Animation af riggede monstre fra Mixamo
 
-## 10. PR delivery strategy: short, independently reviewable milestones
+Brugeren kan levere et rigget monster og særskilte Mixamo-animationer. Cursor skal kontrollere filernes indhold før import.
 
-PR-01 Foundation: baseline logs, portable E2E, normalize tension, mode I/Tab/Escape, safe audio cancellation and source events.
-PR-02 Objectives + inventory persistence/interaction (no redesign of CSS).
-PR-03 Fair monster sensory behavior and flashlight tradeoff, verified against pathfinding.
-PR-04 Unified Director + three authored horror sequences; event IDs, cooldowns, save recovery.
-PR-05 Minimap actual renderer + accessibility + input focus.
-PR-06 Room interactions / extra environmental systems + audio pack adapters.
-PR-07 End-to-end campaign tests, performance/balance pass and polished handoff.
+**Anbefalet filpakke:**
+- Grundmonster med skelet og mesh, gerne T-pose, downloadet én gang med **With Skin**.
+- \`Idle\`, \`Walk\`, \`Run\`, \`Search\`, \`Investigate\`, \`Attack\`, \`Stagger\`, \`Recover\` og eventuelt \`Hide\`, \`Death\` eller \`Disappear\`.
+- Yderligere animationer downloades med **Without Skin**, når de er beregnet til det samme Mixamo-skelet.
+- Vælg **In Place** ved loopende gang/løb, når muligheden er tilgængelig, så den eksisterende AI styrer figurens position og rodanimation ikke bevæger karakteren en ekstra gang.
+- Vælg samme billedhastighed, eksempelvis 30 FPS, og dokumentér afvigelser.
 
-Each PR includes: summary, source files changed, tests run, screenshots where visible, audio samples/links if relevant, measured FPS when claiming perf, risk/rollback, and migration notes. No auto-merge to main; ask for visual approval of large presentation changes. Avoid invisible "trust me" claims.
+**Programmeringskrav:**
+1. Kontrollér rigs, skinning, teksturer, animationsklip og lovlig brugsret.
+2. Konvertér ved behov FBX til \`.glb\`/\`.gltf\` og indlæs med Three.js \`GLTFLoader\`.
+3. Anvend \`THREE.AnimationMixer\` og separate \`AnimationAction\`-objekter. Bind hvert klip til den korrekte rig.
+4. Lad \`MonsterBrain\` vælge **tilstand**. Lad animationssystemet vælge, afspille og krydsfade klippene ud fra tilstanden.
+5. Skift gradvist mellem animationer med startværdier omkring 0,15–0,35 sekunder, og afprøv resultatet visuelt.
+6. Synkronisér gang- og løbeklippets hastighed med den faktiske fremdrift. Monsteret må ikke glide på gulvet eller skøjte gennem sving.
+7. Vrid karakteren naturligt mod den planlagte rute; brug separate hovedbevægelser, hvis riggen tillader det.
+8. På trapper skal animation, kropshøjde og kollision passe. Ingen fod gennem trin eller hovede ind i loft.
+9. Hvis monsterfodtrin skal bruges, afspilles de ud fra reel fodkontakt/animation, ikke i en tilfældig løkke og ikke gennem spillerens fodtrinskanal.
+10. Brug én tydelig, stabil kollisionskapsel uafhængigt af det dekorative skelet.
+11. Ved manglende eller fejlagtigt 3D-asset falder spillet tilbage på det nuværende monster uden at stoppe.
+12. Animationer til et andet skelet kræver korrekt retargeting, ikke blind tilknytning.
 
-## 11. Clear prohibitions and guardrails
-- Never use invasive browser automation to log users in or change their personal system settings.
-- Never rename global item IDs or room IDs without explicit migration.
-- Never remove the original story route, puzzle requirements or endings to make tests easier.
-- Never scatter procedural audio footsteps because player requested "more sounds".
-- Never add teleporting adversaries visibly within view solely to make play scarier.
-- Never use mystery 3D assets without provenance, attribution/licensing verification and a low-cost fallback.
-- Never call npm audit fix --force as a shortcut; investigate vulnerabilities separately and use tested dependency updates.
-- Never treat a green TypeScript build as proof of gameplay/visual correctness.
-- No Git force push, hard reset, clean, destructive stash pops, overwriting users' work or editing main.
+**Test:** Idle → Walk → Run → Search → Attack → Recover, stop/start, 90° og 180° sving, trapper, døre, skjul, pause og indlæsning. Ingen fastlåst T-pose.
 
-## 12. Definition of done and report format
+### P1-05: Central horror-director og spændingsstyring
 
-A milestone is COMPLETE only if:
-- all relevant tests pass on its commit, real browser evidence is attached where appropriate;
-- new interactions are integrated into the existing game rather than isolated unused classes;
-- old saves and endings still work;
-- there are no debug-only dependencies in the release path;
-- visuals and audio correspond to world events and maintain intended direction;
-- README/manual controls updated;
-- user receives the exact GitHub branch/PR and safe PowerShell commands to test.
+Brug én fælles planlægger til at koordinere \`HorrorDirector\`, \`ScriptedEvents\`, \`ScareLogic\` og \`JumpscareEngine\`.
 
-Final Cursor status should always contain:
-- WHAT CHANGED (plain language);
-- FILES AND COMMITS;
-- WHAT WAS ACTUALLY TESTED vs NOT TESTED;
-- VISUAL/AMBIENT EVIDENCE (screenshots);
-- RISKS / KNOWN BUGS / BACKOUT;
-- NEXT SMALL PR with prioritized rationale.
+**Dramatisk kurve:** Ro → Forventning → Antydning → Konfrontation → Restitution.
 
-## 13. Cursor's FIRST instruction (start immediately, no unnecessary questions)
+Beslutninger skal tage højde for:
+- Spillerens aktuelle rum og tidligere besøg.
+- Historisk fase, observerede spor og tidligere hændelser.
+- Lommelygtens tilstand, nylig støj og monsterets placering.
+- Spillerens helbred, skjul og aktuelle aktivitet.
+- Hvor længe der har været ro.
 
-1. Inspect current GitHub branch and local status; use this plan branch as the base or a clean worktree.
-2. Produce a small baseline audit: route inventory modes, live dialogue/loop hooks, known room IDs, save format and CI.
-3. Implement **PR-01** (I/Tab/Escape toggle and focus, normalized audio tension, old event cancellation, portable E2E screenshots) WITHOUT changing the art.
-4. Run npm test and npm run build; run Playwright in browsers supported by the computer, recording exact results. Fix failures until green or report objective blocker.
-5. Open a draft PR and summarize source-level evidence to the owner. Then proceed in the milestone order above. The owner has authorized implementation; do not keep asking them to re-approve routine implementation details.
+**Krav:**
+- Ingen større skræmmehændelse samtidig med en anden stor hændelse, et monsterangreb, et vigtigt tekstpanel eller aktiv pause.
+- Hver unik hændelse får sit eget gemte ID.
+- Rumhændelser skal passe til stedet; radio, telefon, operationsudstyr og kapelklokke har reelle eller plausible lydkilder.
+- Lad små tegn varsle fare: papir ændrer plads, en stol står forskudt, en ny patientjournal findes, et skab står åbent.
+- Respekter en restitutionsperiode efter voldsomme hændelser.
+- Aflys forældede planlagte hændelser ved sceneskift eller gemmeindlæsning.
 
-This handoff is not a request to replace the SktAgnes game or redesign it from zero. The design and original audio assets remain under ChatGPT's ownership, and Cursor should make the underlying systems work like a coherent, professional horror game.
+**Foreløbige balancemål til afprøvning:** Betydelige mindre hændelser med omtrent 25–75 sekunders mellemrum, når forholdene tillader det; store oplevelser typisk flere minutter fra hinanden. Stilhed er også en vigtig del af gyset.
+
+### P1-06: Mørke, lommelygte og ressourcer
+- Spillet skal være mørkt, men der skal findes genkendelige silhuetter og enkelte praktiske lyskilder.
+- Lommelygtens lys skal være nyttigt til at opdage spor, men kan også afsløre spilleren for monsteret.
+- Batteriforbrug, eventuel passiv genopladning, fundne batterier og fjendens reaktion balanceres samlet.
+- Lampens lysintensitet og elektriske summen skal følge samme hændelse.
+- Undgå hyppige fuldskærmsblink, der er ubehagelige eller utilgængelige.
+- Generatoren og strømtilstande skal være gemt og påvirke verden konsekvent.
+- Giv mulighed for mindre flimmer, mindre kamerarystelser og tilgængelig lysstyrke.
+
+### P1-07: Minimap, inventar og brugeroplevelse
+- Bevar ChatGPTs visuelle design i \`src/style.css\`. Cursor implementerer korttegning, taster og inventarlogik.
+- Minimap viser korrekt etage, spillerposition, orientering, opdagede rum, døre og kendte mål.
+- Afslør aldrig hemmelige rum på kortet, før spilleren har opdaget dem.
+- Monsteret skal ikke vises som permanent GPS-prik uden en forklaring i spillets verden.
+- Tegn kortet skarpt ved forskellig skærmskalering (korrekt forhold mellem CSS-pixels og canvas-opløsning).
+- Inventar skal kunne betjenes med tastatur; markeret genstand og beskrivelse skal passe sammen.
+- Nøgler bruges på relevante døre, dokumenter kan læses, batterier kan bruges, og unikke spor må ikke smides væk ved en fejl.
+- Test skift mellem inventar, spil, menu, pause, tekstfelter og musefangst.
+
+## 6. P2 — Store gysersekvenser og ekstra funktioner
+
+### P2-01: Tre gennemtænkte, filmiske sekvenser
+**Receptionen — hospitalet vågner:** Tre lysarmaturer blinker forskudt. Den elektriske summen forsvinder. En dør høres længere væk. Majas besked peger mod arkivet. Ingen tilfældig fuldskærmsansigtsskræm.
+
+**Arkivet — navnene og datoerne:** Dokumenter modsiger hospitalets officielle historie. En skikkelse kan skimtes ved et skrivebord eller i en glasrefleksion efter spilleren har undersøgt et spor. Det skal være muligt at forlade rummet og vende tilbage.
+
+**Operationsstuen/Obduktionen — vidnet:** En båre forskydes, medicinudstyr rasler, lyset falder, og den maskerede skikkelse viser sig kort i døråbningen. Sekvensen sker kun én gang og gemmes.
+
+Hver sekvens har forudsætninger, placering, flugtvej, konsekvens, lydplan, gemt hændelses-ID og browsertest.
+
+### P2-02: Levende miljø med mening
+- Lokaliseret vanddryp, ventilation, rørbanken, klokke og en radio, når det passer til rummet.
+- Dørknirken afspilles, når en dør faktisk bevæger sig.
+- Papirer, gardiner, portrætter, våde fodspor som **visuelle spor** og små ændringer i miljøet kan forstærke historien.
+- Undgå falske spillerfodtrin eller uhæmmede tilfældige lyde.
+- Hvert væsentligt rum bør bidrage med mindst én opdagelse, en ledetråd, en fare eller en meningsfuld fortælling.
+
+### P2-03: Tilgængelighed
+- Separat master-/musik-/effektlydstyrke og undertekster til meningsbærende stemmer.
+- Justérbar musefølsomhed, inverteret Y, mindre kamerarystelse, reducerede lysblink og valgfrie post-effekter.
+- Vis tydeligt fokus og læsbare danske tekster.
+- Pause skal frigive musen og stoppe gameplayhændelser.
+- Frivillige hints kan hjælpe spillere, der sidder fast, uden at afsløre alle hemmeligheder.
+
+### P2-04: Ydelse og assethåndtering
+- Mål efter stabil oplevelse på en almindelig Windows-computer; 60 FPS ved 1366×768 på mellemindstillinger er et **mål, ikke et verificeret resultat**.
+- Begræns samtidige skyggekastende lys, tegningskald, geometrier og materialekopier.
+- Brug instancing eller andre teknikker til gentagne møbler, når det kan dokumenteres, at ydelsen forbedres.
+- Indlæs/dekod kun nødvendige lyd- og 3D-aktiver. Undgå lyddekodning, der fryser billedet.
+- Første rum skal kunne vises hurtigt; manglende assets skal have en stabil reservevisning.
+- Sørg for korrekt \`dispose()\` ved genstart, load og sceneskift.
+- Udvid debugvisningen med målinger af draw calls, lydstemmer, planlagte hændelser og AI-ruteberegninger.
+
+## 7. Præcise programmeringskontrakter
+
+### A. Hændelsesplanlægning
+- Brug spiltid, ikke \`Date.now()\`, til historierelaterede begivenheder.
+- En opgave har \`id\`, type, \`dueTime\`, \`roomId\`, \`epoch\`, prioritet, eventuel eksklusiv gruppe, betingelser og mulighed for annullering.
+- Pauseret gameplay skal ikke indhente gamle hændelser som et kæmpe udbrud, når man fortsætter.
+- Ved nyt spil/indlæsning ændres \`epoch\`, og gamle jobs afvises.
+- Kun én stor skræmmehændelse og én meningsbærende dialog ad gangen.
+- Pseudo-tilfældighed skal kunne genskabes i tests.
+
+### B. Inventarhandlinger
+- Behandl genstandshandlinger som kontrollerede tilstandsovergange.
+- Afvis ukendte genstands-ID'er, for mange anvendelser og gentagen opsamling.
+- Opdatér tilstanden **før** tilhørende lyd og UI-event udsendes.
+- Gendan synlige pickups ud fra gemte \`pickedUp\`-ID'er.
+- Historiekritiske genstande må ikke blive ugyldige ved et fejltryk.
+
+### C. Monsterets opfattelse
+- Sensorer leverer observationer med \`type\`, position, tillid, tidspunkt og kilde.
+- Observationer mister værdi over tid og ved afstand/forhindringer.
+- \`MonsterBrain\` vælger handling; \`Pathfinding\` vælger rute; figurcontroller og animation udfører den.
+- UI, renderer og lydcallbacks må ikke direkte omskrive monsterets adfærdstilstand.
+- Brug rutevalidering og genfinding, hvis en dør eller et møbel blokerer.
+
+### D. Verdens tilstand
+- Hvert interaktivt objekt har et stabilt ID og en afgrænset tilstand.
+- Døre, rekvisitter og kollision bruger fælles verdenskoordinater.
+- Rent dekorative objekter skal ikke have utilsigtet kollision.
+- Åbne døre påvirker synslinje og lydafskærmning korrekt.
+- Undersøg råderum omkring trappe, dørblad og loft ved enhver geometrisk ændring.
+
+### E. Grafik og lyshændelser
+- Bevar V2-rendering og den eksisterende visuelle retning.
+- Lad belysningens reelle intensitet følge lampehændelserne; emissive materialer skal stemme overens.
+- Spillets udfordring må ikke fjernes ved en fejl med skærmlysindstillinger, men tilgængeligheden skal bevares.
+- Skab mørke gennem lys, materialer og tåge — ikke blot ved at gøre hele skærmen sort.
+
+## 8. Filansvar for Cursor
+
+| Eksisterende fil | Hvad Cursor skal gøre |
+|---|---|
+| \`Game.ts\` | Behold som samlingspunkt, flyt regler til moduler og forbind dem her |
+| \`Input.ts\` | Modalstyring, I/Tab/Escape og fokus |
+| \`UI.ts\` | Forbind eksisterende knapper til faktiske inventar- og undersøgelseshandlinger |
+| \`ui/minimap.ts\` | Implementér kortets funktionelle tegning uden at ændre visuel CSS-retning |
+| \`systems/Story.ts\` | Missionsgraf med afhængigheder og korrekt slutningslogik |
+| \`systems/Inventory.ts\`, \`catalog.ts\` | Validerede genstandshandlinger, entydige ID'er |
+| \`systems/SaveSystem.ts\` | Migration, robust indlæsning og gemning |
+| \`ai/MonsterBrain.ts\`, \`MonsterAI.ts\`, \`senses.ts\` | Fair sansning, jagt, eftersøgning og bevægelse |
+| Nyt monster-animationsmodul | \`GLTFLoader\`, \`AnimationMixer\`, overgange, skalering og skeletbinding |
+| \`horror/HorrorDirector.ts\`, \`ScriptedEvents.ts\`, \`ScareLogic.ts\` | Fælles hændelsesplanlægning og gemt historik |
+| \`audio/AudioEngine.ts\` | Normaliser spænding, forbind lydaktiver og håndhæv kanal-/hændelsesregler |
+| \`world/buildWorld.ts\`, \`data.ts\` | Rum-ID'er, kollision, navigation og interaktionsmetadata |
+| \`render/PostFX.ts\` | Bevar designet; kun dokumenterede kompatibilitets-/ydelsesrettelser |
+| \`e2e/\` og \`tests/\` | Genkendelige og gentagelige tests, Windows-kompatible billeder |
+
+**Vigtigt:** ChatGPT ejer \`src/style.css\` og de visuelle geometri-/materialeændringer, medmindre der aftales en konkret integrationsrettelse.
+
+## 9. Obligatorisk testplan
+
+1. **T0 – Bygning og baseline:** \`npm test\`, \`npm run build\`, Playwright i Chromium, eventuelt Firefox, og lydtest.
+2. **T1 – Tastatur:** I/Tab åbner/lukker, Esc, fokus, pause, kodefelt og pointer lock.
+3. **T2 – Bevægelse:** Stilstand, gang, løb, Ctrl, hop, skjul, pause og indlæsning uden uønskede fodtrin.
+4. **T3 – Rum:** Alle tre etager, trapper begge veje, møbler og kritiske døre uden fastlåsning.
+5. **T4 – AI:** Monsteret reagerer på lyd/syn, kan lede, miste spilleren og navigere rundt om forhindringer.
+6. **T5 – Historie:** Tre nøgler, sikringer/generator, kode, beviser, journaler, rosenkrans og fem slutninger.
+7. **T6 – Horror:** Gentagelige simulationsforløb med cooldown, ingen dobbelt engangshændelse, ingen større skræm under pause.
+8. **T7 – Lyd:** Kanaler på 0, genoptagelse, fejlende filer, forældede cues, korrekt lyd ved kilder og ingen falske fodtrin.
+9. **T8 – Gemning:** Gamle versioner, beskadiget JSON, ugyldige genstands-ID'er og genstart.
+10. **T9 – Lys:** Lommelygte til/fra, tre receptionlamper, korrekt lyd, mørke uden ubrugelige ruter.
+11. **T10 – Brugerflade:** 1920×1080, 1366×768 og smalle vinduer; kortet må ikke overlappe vigtige beskeder.
+12. **T11 – Ydelse:** Mindst fem minutters spil med FPS, GPU-/RAM- og lydnodeforbrug; ingen vækst ved gentagne genstarter.
+13. **T12 – Browser:** Ingen kritiske konsolfejl, 404-aktiver eller ødelagte mål/afslutninger.
+14. **T13 – Monsteranimation:** Idle, Walk, Run, Search, Attack, vendinger, døre, trapper og 3D-kollisionskapsel. Ingen T-pose eller fodglidning.
+
+**Testmetode:** Renkodet logik testes i Vitest. Integration testes med kontrolleret ur og lydadapter. Playwright tester virkelige input og skærmbilleder samt test-API'et \`window.__AGNES__\`. Screenshots gemmes med \`testInfo.outputPath()\` og må ikke bruge en hårdkodet Linux-mappe.
+
+Rapportér præcis hvilke tests der er kørt; spring ikke stiltiende over, hvis browser eller lydudstyr mangler.
+
+## 10. Udviklingsrækkefølge: Syv overskuelige pull requests
+
+**PR-01 – Fundament og kontroller:** Førmåling, Windows-kompatibel Playwright, I/Tab/Escape, lydspænding, ugyldige hændelser og tests.
+
+**PR-02 – Missioner og inventar:** Missionsgraf, ledetråde, genstandshandlinger og sikker gemning.
+
+**PR-03 – Monster-AI og animationer:** Fair sansning, søgning, jagt, skjul, lommelygte og korrekt rigget figur med animationer. Hvis brugeren endnu ikke har givet model-/animationsfiler, skal koden kunne fungere med det eksisterende monster.
+
+**PR-04 – Dynamisk horror:** Samlet director, tidsstyring, hændelseshistorik og de tre store rumsekvenser.
+
+**PR-05 – Minimap og betjening:** Rigtigt kort, navigation, fokus, undertekster og relevante tilgængelighedsfunktioner.
+
+**PR-06 – Levende rum og lyd:** Interaktive miljøelementer, logiske verdensændringer og integration af ChatGPTs originale lydfiler.
+
+**PR-07 – Færdiggørelse:** Alle story paths, performance, tilgængelighed, full-playthrough og stabilitet.
+
+Hver PR skal indeholde ændrede filer, commits, tests, eventuelle screenshots/lydbeviser, kendte begrænsninger og plan for tilbagerulning. Ingen automatisk sammenfletning til \`main\`.
+
+## 11. Forbud og kvalitetskrav
+
+- Ingen reelt meningsløse eller evigt gentagne skræmmelyde.
+- Ingen falske spillerfodtrin, når spilleren står stille.
+- Ingen synlig monsterteleportering, der bare skal gøre spillet mere svært.
+- Ingen tilfældige monstermodeller eller lydfiler uden lovlig anvendelsesret.
+- Ingen fjernelse af gamle missioner, gemninger eller slutninger for at få tests til at bestå.
+- Ingen ukontrolleret \`npm audit fix --force\`; undersøg afhængigheder og test opgraderinger.
+- Ingen omskrivning af hele spillet på én gang.
+- Ingen overdrevet skræmmespam, hyppige stærke lysglimt eller lydniveauer, der overstyrer brugerens indstillinger.
+- Ingen færdigmelding uden test af både kode og faktisk spiloplevelse.
+
+## 12. Definition af færdigt arbejde og rapportering
+
+En fase er først færdig, når:
+- Ændringerne er integreret i den eksisterende spiloplevelse og ikke kun ligger i ubrugte filer.
+- Relevante tests passerer på den præcise commit.
+- Browseroplevelsen er prøvet, hvor ændringen kræver visuel/adfærdsmæssig kontrol.
+- Gamle gemninger, vigtige gåder og slutninger ikke er ødelagt.
+- Design og lyd er respekteret.
+- Nye kontroller er dokumenteret.
+- Brugeren har fået en sikker GitHub-gren, PR-link og PowerShell-instruks til lokal test.
+
+**Hver statusrapport til brugeren skal have:**
+- Hvad blev ændret?
+- Hvilke filer og commits?
+- Hvad blev virkelig testet, og hvad blev ikke testet?
+- Screenshots eller lydbevis, hvis relevant.
+- Kendte fejl og risiko.
+- Den næste konkrete udviklingsopgave.
+
+## 13. Den første opgave til Cursor — begynd nu
+
+1. Undersøg lokal projektmappe, nuværende Git-gren, ikke-gemte ændringer og den seneste plangren.
+2. Opret en separat sikker arbejdsgren/worktree fra \`plan/cursor-gameplay-overhaul-v1\`.
+3. Kør de eksisterende tests og dokumentér førtilstanden.
+4. Implementér **PR-01**: I/Tab/Escape-inventar, korrekt fokus/musefangst, normalisering af lydspænding og beskyttelse mod gamle hændelseslyde efter load/pause.
+5. Gør Playwright-billeder kompatible med Windows og tilføj tests til de rettede funktioner.
+6. Kør \`npm test\`, \`npm run build\` og relevante browsertests; ret fejl og dokumentér eventuelle hindringer.
+7. Opret en **kladde-PR** med beskrivelse af resultaterne. Fortsæt derefter efter rækkefølgen ovenfor.
+
+**Brugeren har godkendt, at Cursor udfører programmeringsarbejdet. Der er ikke behov for at stoppe og spørge om hver almindelig delopgave.** Større ændringer, der vil ødelægge eller overskrive design/lyde/brugerkode, kræver derimod en tydelig aftale.
+
+**Målet er ikke endnu en løs plan. Målet er at udvikle SktAgnes til et sammenhængende, skræmmende og stabilt førstepersons-gyserspil, mens ChatGPT fortsat står for design og lyd.**
