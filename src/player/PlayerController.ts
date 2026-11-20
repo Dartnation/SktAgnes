@@ -6,6 +6,10 @@ export const STAND_H = 1.7
 export const CROUCH_H = 1.05
 export const EYE_STAND = 1.62
 export const EYE_CROUCH = 1.0
+/** Metres per second. The chase is capped just under this, so a sprint can open a gap. */
+export const SPRINT_SPEED = 4.35
+/** Stamina points per second while sprinting. Full bar lasts a little over 13 seconds. */
+export const SPRINT_DRAIN = 7.1
 
 export interface SimPlayer {
   x: number
@@ -47,10 +51,13 @@ export function simulatePlayer(
   let crouching = wish.crouch || mustCrouch(next.y, next.x, next.z, STAND_H, colliders)
   const moving = Math.abs(wish.forward) + Math.abs(wish.strafe) > 0.01
   const sprinting = wish.sprint && !crouching && next.stamina > 5 && moving && next.grounded
-  const speed = crouching ? 1.18 : sprinting ? 4.35 : 2.32
+  const speed = crouching ? 1.18 : sprinting ? SPRINT_SPEED : 2.32
 
-  if (sprinting) next.stamina = clamp(next.stamina - 16.5 * dt, 0, 100)
-  else next.stamina = clamp(next.stamina + (crouching ? 7 : 13) * dt, 0, 100)
+  if (sprinting) next.stamina = clamp(next.stamina - SPRINT_DRAIN * dt, 0, 100)
+  else {
+    const regen = !moving ? 11 : crouching ? 5 : 6.5
+    next.stamina = clamp(next.stamina + regen * dt, 0, 100)
+  }
 
   if (wish.jump && next.grounded && !crouching && next.stamina > 14) {
     next.vy = 4.25
