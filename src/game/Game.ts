@@ -10,6 +10,7 @@ import { applyMouseLook, rightFromYaw, type Vec3 } from '../core/math'
 import { flashlightBanishes, pickRelocate } from '../ai/presence'
 import { emptyScript, stepScript } from '../horror/ScriptedEvents'
 import { advanceEpoch, createSchedule, markRecovery, offerSequences, planBeat, stepSchedule, type ScheduleState } from '../horror/Schedule'
+import { createTone, doorStartedMoving, RADIO_SOURCE, radioPulse, stepRoomTone as advanceRoomTone, type ToneState } from '../audio/roomTone'
 import { lineOfSight, overlapsSolid, selectInteract, type InteractCandidate } from '../physics/Collision'
 import { activeColliders, buildWorld, doorBlocksNav, inZone, patrolPoints, roomAt, sampleFloorY, type World } from '../world/buildWorld'
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
@@ -62,6 +63,8 @@ export class Game {
   private scares: JumpscareEngine
   private director: DirectorState = createDirector()
   private schedule: ScheduleState = createSchedule()
+  private tone: ToneState = createTone()
+  private radioAt = -99
   private settings: Settings
   private storage: StorageLike
   private mode: Mode = 'menu'
@@ -256,6 +259,7 @@ export class Game {
   }
 
   start(): void {
+    this.audio.enableRoomTones()
     this.ui.show('menu')
     this.mode = 'menu'
     this.clock = performance.now()
@@ -501,8 +505,9 @@ export class Game {
     this.audio.setBreath(this.holdBreath ? 0.05 : this.sim.stamina < 25 ? 0.5 : dist < 6 ? 0.25 : 0.05)
     const nearLight = this.nearestLight()
     this.audio.setHum(!!nearLight && this.lightLevel(nearLight.def) > 0.2, nearLight ? { x: nearLight.def.x, y: nearLight.def.y, z: nearLight.def.z } : this.feet())
-    this.audio.setRadio(this.snap.flags.radioOn, { x: 53.4, y: 5, z: 2.3 })
+    this.audio.setRadio(this.snap.flags.radioOn, RADIO_SOURCE)
     this.audio.setZone(this.zoneFor(room?.id))
+    this.stepRoomTone(room, dt)
     this.creepIn -= dt
     if (this.creepIn <= 0 && this.mode === 'playing') {
       this.creepIn = 16 + Math.random() * 18 - this.director.tension * 0.05
@@ -992,6 +997,7 @@ export class Game {
       const cur = this.open.get(door.id) ?? 0
       const next = cur + Math.sign(target - cur) * Math.min(Math.abs(target - cur), dt * 8)
       this.open.set(door.id, next)
+      if (doorStartedMoving(cur, next)) this.audio.play('creak', this.doorPos(door), { volume: 0.35 })
       const pivot = this.built.doors.get(door.id)
       if (!pivot) continue
       const base = Number.isFinite(pivot.userData.closedYaw) ? (pivot.userData.closedYaw as number) : 0
@@ -1199,6 +1205,8 @@ export class Game {
     this.monster.spawn(this.snap.monster, this.snap.monster.yaw, 'Patrol')
     this.director = createDirector()
     this.schedule = createSchedule()
+    this.tone = createTone()
+    this.radioAt = -99
     this.creepIn = 12
     this.scares.dismiss()
     this.audio.beginScene()
@@ -1238,6 +1246,8 @@ export class Game {
     this.lunge.visible = false
     this.creepIn = 12
     this.schedule = advanceEpoch(this.schedule)
+    this.tone = createTone()
+    this.radioAt = -99
     this.scares.dismiss()
     this.audio.beginScene()
     this.setMode('playing')
@@ -1362,6 +1372,22 @@ export class Game {
     }
     this.ui.examine(def, map)
     this.setMode('examine')
+  }
+
+  private stepRoomTone(room: ReturnType<typeof roomAt>, dt: number): void {
+    const box = room
+      ? { id: room.id, x: room.x, z: room.z, w: room.w, d: room.d, floorY: FLOOR_Y[room.floor] }
+      : null
+    const stepped = advanceRoomTone(this.tone, { time: this.snap.playTime, dt, room: box })
+    this.tone = stepped.state
+    if (stepped.cue) {
+      const cue = stepped.cue
+      this.audio.play(cue.kind, { x: cue.x, y: cue.y, z: cue.z }, { volume: 0.22, occluded: false })
+    }
+    if (radioPulse(this.snap.flags.radioOn, this.snap.playTime, this.radioAt)) {
+      this.radioAt = this.snap.playTime
+      this.audio.play('whisper', RADIO_SOURCE, { volume: 0.2, occluded: true })
+    }
   }
 
   private zoneFor(roomId?: string): string {
