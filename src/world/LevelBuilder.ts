@@ -638,7 +638,11 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
     case 'fridge':
       return [part(w, h, d, 0, 0, 0, 'metal')]
     case 'safe':
-      return [part(w, h, d, 0, 0, 0, 'metal')]
+      return [
+        part(w, h, d, 0, 0, 0, 'metal'),
+        part(w * 0.78, h * 0.72, 0.03, 0, h * 0.06, d * 0.52, 'trim'),
+        part(0.1, 0.1, 0.05, w * 0.18, h * 0.42, d * 0.55, 'metal'),
+      ]
     case 'bed':
       return [
         part(w, 0.12, d, 0, 0.32, 0, 'wood'),

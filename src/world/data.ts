@@ -249,6 +249,7 @@ export const PROPS: PropDef[] = [
   P('ark_file', 'arkiv', 'filing', 3.7, 2.0, 0.78, 0.56, 1.4),
   P('ark_records', 'arkiv', 'recordcabinet', 9.0, 9.5, 1.4, 0.48, 1.8),
   P('ark_chair', 'arkiv', 'chair', 8, 3.5, 0.46, 0.46, 0.92),
+  P('ark_safe', 'arkiv', 'safe', 10.2, 9.55, 0.55, 0.48, 0.78),
   P('lab_cart', 'laboratorium', 'medicalcart', 22.4, 2.0, 0.74, 0.56, 0.9),
   P('lab_screen', 'laboratorium', 'foldscreen', 21.8, 9.5, 1.4, 0.17, 1.9),
   P('lab_iv', 'laboratorium', 'ivstand', 13.5, 2.3, 0.32, 0.32, 1.8),
@@ -280,8 +281,21 @@ export const PICKUPS: PickupDef[] = [
   { id: 'key_kapel_pick', room: 'kapel', itemId: 'key_kapel', x: 14.5, z: 9 },
 ]
 
-export const DEVICES: DeviceDef[] = []
-export const HIDES: HideDef[] = []
+/**
+ * Interaction points in front of the V3 props, clear of the door line at z≈6.
+ * The generator box itself is the visual at (8.8, 9.15) in the basement.
+ */
+export const DEVICES: DeviceDef[] = [
+  { id: 'dev_generator', kind: 'generator', room: 'kaeldergang', x: 8.8, z: 8.35 },
+  { id: 'dev_safe', kind: 'safe', room: 'arkiv', x: 10.2, z: 8.55 },
+  { id: 'dev_radio', kind: 'radio', room: 'personalerum', x: 45.8, z: 8.35 },
+]
+export const HIDES: HideDef[] = [
+  { id: 'hide_pat', room: 'patientgang', kind: 'locker', x: 14, z: 3.2 },
+  { id: 'hide_kael', room: 'kaeldergang', kind: 'locker', x: 7.4, z: 8.55 },
+  { id: 'hide_obs', room: 'observation', kind: 'locker', x: 34.4, z: 3.05 },
+  { id: 'hide_kam', room: 'kammer', kind: 'bed', x: 40, z: 7.85 },
+]
 export const DECALS: DecalDef[] = [
   { room: 'slagterum', kind: 'blood', x: 40, z: 6.5, rot: 0.2, w: 1.4, d: 0.5 },
   { room: 'obduktion', kind: 'blood', x: 28, z: 8, rot: 0.4, w: 1.2, d: 0.45 },

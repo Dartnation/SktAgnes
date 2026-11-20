@@ -50,16 +50,17 @@ describe('intro', () => {
 describe('lamps', () => {
   it('flickers each fixture on its own and stays calm when reduced', () => {
     let differed = false
-    let dipped = false
-    for (let t = 0; t < 40; t += 0.2) {
+    let previous = fixtureFlicker(0, 1.2, false)
+    for (let t = 0; t < 40; t += 0.05) {
       const a = fixtureFlicker(t, 1.2, false)
       const b = fixtureFlicker(t, 4.8, false)
-      if (Math.abs(a - b) > 0.2) differed = true
-      if (a < 0.25 || b < 0.25) dipped = true
-      expect(fixtureFlicker(t, 1.2, true)).toBeGreaterThan(0.8)
+      if (Math.abs(a - b) > 0.04) differed = true
+      expect(a).toBeGreaterThan(0.6)
+      expect(Math.abs(a - previous)).toBeLessThan(0.03)
+      previous = a
+      expect(fixtureFlicker(t, 1.2, true)).toBeGreaterThan(0.85)
     }
     expect(differed).toBe(true)
-    expect(dipped).toBe(true)
     expect(visibleLightCount('high')).toBeLessThanOrEqual(8)
     expect(visibleLightCount('low')).toBe(4)
   })
