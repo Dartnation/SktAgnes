@@ -1426,7 +1426,7 @@ export class Game {
     this.shadowMesh.position.y = y + 1
     this.shadowMesh.visible = true
     const at = { x: (this.shadowFrom.x + this.shadowTo.x) / 2, y: y + 1.2, z: (this.shadowFrom.z + this.shadowTo.z) / 2 }
-    this.audio.play('shadow', at, { volume: 1 })
+    this.audio.playTracked('shadow', at)
     this.audio.play('creak', at, { volume: 0.7 })
     this.audio.play('stepMonster', at, { volume: 0.85 })
     this.audio.setHeartbeat(0.7)
