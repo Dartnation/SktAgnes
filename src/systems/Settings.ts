@@ -15,6 +15,8 @@ export interface Settings {
   fullscreen: boolean
   motionBlur: boolean
   cameraShake: boolean
+  /** Whisper and scare lines. On unless the player turns them off. */
+  subtitles: boolean
   /** When true, mouse up looks down. Default is off: mouse up looks up. */
   invertY: boolean
 }
@@ -38,6 +40,7 @@ export function defaultSettings(): Settings {
     fullscreen: false,
     motionBlur: false,
     cameraShake: true,
+    subtitles: true,
     invertY: false,
   }
 }
@@ -64,6 +67,7 @@ export function sanitizeSettings(partial: Partial<Settings> | null | undefined):
     fullscreen: typeof p.fullscreen === 'boolean' ? p.fullscreen : d.fullscreen,
     motionBlur: typeof p.motionBlur === 'boolean' ? p.motionBlur : d.motionBlur,
     cameraShake: typeof p.cameraShake === 'boolean' ? p.cameraShake : d.cameraShake,
+    subtitles: typeof p.subtitles === 'boolean' ? p.subtitles : d.subtitles,
     invertY: typeof p.invertY === 'boolean' ? p.invertY : d.invertY,
   }
 }

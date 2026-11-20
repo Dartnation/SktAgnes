@@ -23,6 +23,16 @@ export type ModeAction =
  * Tastatur skifter kun tilstand. Selve spilopdateringen kører ikke, mens en
  * modal er åben, så lukning skal kunne ske herfra.
  */
+export type InventoryAction = 'up' | 'down' | 'use' | 'none'
+
+/** Keyboard choice inside the inventory. The highlighted row is the one the description describes. */
+export function inventoryKey(key: string | null): InventoryAction {
+  if (key === 'ArrowUp' || key === 'KeyW') return 'up'
+  if (key === 'ArrowDown' || key === 'KeyS') return 'down'
+  if (key === 'Enter' || key === 'KeyE') return 'use'
+  return 'none'
+}
+
 export function modeAction(mode: GameMode, key: string | null): ModeAction {
   if (!key) return { type: 'none' }
   if (mode === 'playing') {

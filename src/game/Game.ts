@@ -15,7 +15,7 @@ import { activeColliders, buildWorld, doorBlocksNav, inZone, patrolPoints, roomA
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
 import { EXIT_DOOR, FLOOR_Y, ZONES } from '../world/data'
 import { Input } from './Input'
-import { GAMEPLAY_EDGES, MODAL_KEYS, modeAction, type GameMode } from './modalInput'
+import { GAMEPLAY_EDGES, inventoryKey, MODAL_KEYS, modeAction, type GameMode } from './modalInput'
 import { UI } from '../ui/UI'
 import { addItem, dropOne, hasItem, removeItem, useConsumable } from '../systems/Inventory'
 import { batteryBand, boostBattery, stepBattery } from '../systems/battery'
@@ -34,7 +34,7 @@ import {
   type GameSnapshot,
 } from '../systems/Story'
 import { PostFX } from '../render/PostFX'
-import { paintMinimap, roomsOf } from '../ui/minimap'
+import { backingStore, objectiveRoom, paintMinimap, roomsOf, type MiniGoal } from '../ui/minimap'
 import type { NoiseKind } from '../ai/senses'
 
 type Mode = GameMode
@@ -492,8 +492,7 @@ export class Game {
     this.trauma = Math.max(this.trauma, this.settings.cameraShake ? this.scares.fx.trauma : 0)
     this.flash = Math.max(this.flash, this.scares.fx.flash)
     if (this.scares.fx.subtitle) {
-      this.ui.subtitle(this.scares.fx.subtitle)
-      this.subtitleT = 1.5
+      this.caption(this.scares.fx.subtitle, 1.5)
     }
     const chasing = this.monster.bb.state === 'Chase' || this.monster.bb.state === 'Attack'
     this.audio.setTension(this.director.tension, chasing)
@@ -543,15 +542,13 @@ export class Game {
     } else if (kind === 'whisper' || kind === 'breath') {
       const behind = kind === 'breath' ? 1.2 : 2.4
       this.audio.play('whisper', { x: this.sim.x - this.camDir.x * behind, y: this.sim.y + 1.4, z: this.sim.z - this.camDir.z * behind }, { volume: kind === 'breath' ? 0.85 : 0.6 })
-      this.ui.subtitle(kind === 'breath' ? '…åndedræt, lige bag dig.' : '…Agnes…')
-      this.subtitleT = 1.8
+      this.caption(kind === 'breath' ? '…åndedræt, lige bag dig.' : '…Agnes…', 1.8)
       if (kind === 'breath') this.audio.setHeartbeat(0.55)
     } else if (kind === 'knock') {
       this.queueKnocks()
     } else if (kind === 'phone') {
       this.audio.play('sting', { x: 16, y: 5, z: 22 }, { volume: 0.8 })
-      this.ui.subtitle('En telefon ringer et sted i fløjen.')
-      this.subtitleT = 2.2
+      this.caption('En telefon ringer et sted i fløjen.', 2.2)
     } else if (kind === 'creak') {
       this.audio.play('creak', { x: this.sim.x + 2, y: this.sim.y, z: this.sim.z + 1 }, { volume: 0.5 })
     } else if (kind === 'thunder') {
@@ -1321,6 +1318,13 @@ export class Game {
   private applyModalKeys(): void {
     const focused = this.input.formFocused()
     if (this.mode !== 'playing' || focused) this.input.discard(GAMEPLAY_EDGES)
+    if (this.mode === 'inventory' && !focused) {
+      const choice = inventoryKey(this.input.takeFirst(['ArrowUp', 'ArrowDown', 'KeyW', 'KeyS', 'Enter', 'KeyE']))
+      if (choice === 'up') this.invIndex = Math.max(0, this.invIndex - 1)
+      if (choice === 'down') this.invIndex = Math.min(Math.max(0, this.snap.inventory.length - 1), this.invIndex + 1)
+      if (choice === 'up' || choice === 'down') this.refreshInv()
+      if (choice === 'use') this.useSelected()
+    }
     const key = this.input.takeFirst(focused ? ['Escape'] : MODAL_KEYS)
     const action = modeAction(this.mode, key)
     if (action.type === 'mode') this.setMode(action.mode)
@@ -1479,8 +1483,7 @@ export class Game {
       this.lightCut.set('reception_1', this.snap.playTime + 1.15)
       this.lightCut.set('reception_2', this.snap.playTime + 1.9)
       this.audio.play('door', { x: 14, y: 0, z: 6 }, { volume: 0.45, occluded: true })
-      this.ui.subtitle('Majas brev peger mod arkivet.')
-      this.subtitleT = 2.4
+      this.caption('Majas brev peger mod arkivet.', 2.4)
       return
     }
     if (id === 'arkiv_names') {
@@ -1488,8 +1491,7 @@ export class Game {
       this.shadowTo.copy(this.shadowFrom)
       this.shadowT = 1.1
       this.audio.play('paper', { x: 6, y: this.sim.y + 1, z: 3.4 }, { volume: 0.7 })
-      this.ui.subtitle('Navnene stemmer ikke med journalen.')
-      this.subtitleT = 2.4
+      this.caption('Navnene stemmer ikke med journalen.', 2.4)
       return
     }
     if (id === 'obduktion_witness') {
@@ -1503,8 +1505,7 @@ export class Game {
       this.shadowFrom.set(this.sim.x + this.camDir.x * 2.8, y, this.sim.z + this.camDir.z * 2.8)
       this.shadowTo.copy(this.shadowFrom)
       this.shadowT = 1.1
-      this.ui.subtitle('Noget står i døråbningen.')
-      this.subtitleT = 2.2
+      this.caption('Noget står i døråbningen.', 2.2)
     }
   }
 
@@ -1575,9 +1576,30 @@ export class Game {
     const canvas = this.ui.root.querySelector('#minimap') as HTMLCanvasElement | null
     const ctx = canvas?.getContext('2d')
     if (!canvas || !ctx) return
+    const cssW = canvas.clientWidth || canvas.width
+    const cssH = canvas.clientHeight || canvas.height
+    const store = backingStore(cssW, cssH, window.devicePixelRatio || 1)
+    if (canvas.width !== store.width || canvas.height !== store.height) {
+      canvas.width = store.width
+      canvas.height = store.height
+    }
     const room = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
     const floor = room?.floor ?? 0
-    const showMonster = this.snap.playTime < this.monsterShown
+    const missionRoom = objectiveRoom(currentObjective(this.snap).id)
+    const goals: MiniGoal[] = []
+    const target = this.world.rooms.find((item) => item.id === missionRoom)
+    if (target && this.snap.visited.includes(target.id)) {
+      goals.push({
+        id: currentObjective(this.snap).id,
+        roomId: target.id,
+        x: target.x + target.w * 0.5,
+        z: target.z + target.d * 0.5,
+        floor: target.floor,
+      })
+    }
+    const monsterFloor = Math.round(this.monster.pos.y / 4)
+    const nearMonster = Math.hypot(this.monster.pos.x - this.sim.x, this.monster.pos.z - this.sim.z) < 16
+    const showMonster = nearMonster && monsterFloor === floor && !this.monster.concealed && this.snap.playTime < this.monsterShown
     paintMinimap(ctx, canvas.width, canvas.height, {
       rooms: roomsOf(this.world.rooms),
       floor,
@@ -1585,10 +1607,21 @@ export class Game {
       pz: this.sim.z,
       yaw: this.sim.yaw,
       visited: new Set(this.snap.visited),
-      monster: showMonster ? { x: this.monster.pos.x, z: this.monster.pos.z, show: true } : null,
+      monster: { x: this.monster.pos.x, z: this.monster.pos.z, floor: monsterFloor, show: showMonster },
       batteries: this.world.pickups
         .filter((p) => p.itemId === 'battery' && this.snap.visited.includes(p.room) && !this.snap.pickedUp.includes(p.id))
         .map((p) => ({ x: p.x, z: p.z, floor: this.world.rooms.find((r) => r.id === p.room)?.floor ?? 0 })),
+      doors: this.world.doors.map((door) => ({
+        id: door.id,
+        floor: door.floor,
+        axis: door.axis,
+        coord: door.coord,
+        center: door.center,
+        a: door.a,
+        b: door.b,
+        locked: door.locked,
+      })),
+      goals,
     })
   }
 
@@ -1831,6 +1864,12 @@ export class Game {
     }
     g.visible=false
     return g
+  }
+
+  private caption(text: string, seconds: number): void {
+    if (!this.settings.subtitles) return
+    this.ui.subtitle(text)
+    this.subtitleT = seconds
   }
 
   private say(text: string): void {
