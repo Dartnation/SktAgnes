@@ -1,9 +1,6 @@
 import { expect, test } from '@playwright/test'
 import fs from 'node:fs'
 
-const shots = '/opt/cursor/artifacts'
-fs.mkdirSync(shots, { recursive: true })
-
 const files = [
   'fodtrin-gaaende.mp3',
   'lommelygte-taend-sluk.mp3',
@@ -16,7 +13,7 @@ const files = [
 
 test.setTimeout(180000)
 
-test('launcher serves every recording and Firefox/Chromium actually plays them', async ({ page, request, browserName }) => {
+test('launcher serves every recording and Firefox/Chromium actually plays them', async ({ page, request, browserName }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', (err) => errors.push(err.message))
   page.on('console', (msg) => {
@@ -102,7 +99,7 @@ test('launcher serves every recording and Firefox/Chromium actually plays them',
   }
 
   fs.writeFileSync(
-    `${shots}/audio-levels-${browserName}.json`,
+    testInfo.outputPath(`audio-levels-${browserName}.json`),
     JSON.stringify({ browser: browserName, bed, levels, decoded }, null, 2),
   )
   expect(errors, errors.join('\n')).toEqual([])

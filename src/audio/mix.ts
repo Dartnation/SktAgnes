@@ -21,6 +21,20 @@ export function musicBedGain(rms: number, peak: number): number {
   return Math.min(gain, 0.45 / Math.max(0.001, peak * REFERENCE_MASTER))
 }
 
+/**
+ * HorrorDirector gemmer spænding som 0–100. Mixeren bruger 0–1.
+ * Jagt lægger et loft på 0,25 oveni, så et lavt stressniveau ikke bliver fuld alarm.
+ */
+export function normaliseTension(raw: number, chasing = false): number {
+  if (!Number.isFinite(raw)) return clampVolume(chasing ? 0.25 : 0)
+  return clampVolume(raw / 100 + (chasing ? 0.25 : 0))
+}
+
+/** En lyd fra en tidligere scene eller et for gammelt tastetryk må ikke afspilles. */
+export function acceptQueuedCue(requestEpoch: number, currentEpoch: number, ageMs: number, kind: string): boolean {
+  return requestEpoch === currentEpoch && cueIsFresh(kind, ageMs)
+}
+
 /** Events older than the action that triggered them should not replay on unlock. */
 export function cueIsFresh(kind: string, ageMs: number): boolean {
   const maxAge = kind === 'step' || kind === 'stepMonster' ? 200 :

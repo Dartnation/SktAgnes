@@ -14,6 +14,7 @@ import { activeColliders, buildWorld, doorBlocksNav, inZone, patrolPoints, roomA
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
 import { EXIT_DOOR, FLOOR_Y, ZONES } from '../world/data'
 import { Input } from './Input'
+import { GAMEPLAY_EDGES, MODAL_KEYS, modeAction, type GameMode } from './modalInput'
 import { UI } from '../ui/UI'
 import { addItem, dropOne, hasItem, removeItem, useConsumable } from '../systems/Inventory'
 import { batteryBand, boostBattery, stepBattery } from '../systems/battery'
@@ -34,7 +35,7 @@ import { PostFX } from '../render/PostFX'
 import { paintMinimap, roomsOf } from '../ui/minimap'
 import type { NoiseKind } from '../ai/senses'
 
-type Mode = 'menu' | 'playing' | 'paused' | 'inventory' | 'examine' | 'keypad' | 'settings' | 'slots' | 'credits' | 'exit' | 'ending'
+type Mode = GameMode
 
 interface RuntimePickup {
   id: string
@@ -294,6 +295,7 @@ export class Game {
   }
 
   private advance(dt: number): void {
+    this.applyModalKeys()
     if (this.mode === 'playing') this.updatePlaying(dt)
     else if (this.mode === 'menu' || this.mode === 'credits' || this.mode === 'exit') this.updateIdle(dt)
     this.render(dt)
@@ -345,8 +347,6 @@ export class Game {
     const wish = this.input.wish()
     this.holdBreath = !!this.hiding && wish.sprint
 
-    if (this.input.pressed('Escape')) this.setMode('paused')
-    if (this.input.pressed('Tab') || this.input.pressed('KeyI')) this.setMode('inventory')
     if (this.input.pressed('F3')) this.showPerf = !this.showPerf
     if (this.input.pressed('F4')) this.showAudio = !this.showAudio
     if ((this.testMode || new URLSearchParams(location.search).has('debug')) && this.input.pressed('F6')) this.snap.playTime += 30
@@ -821,6 +821,11 @@ export class Game {
     }
   }
 
+  private syncView(): void {
+    this.placeCamera({ sprint: false }, 1)
+    this.camera.getWorldDirection(this.camDir)
+  }
+
   private placeCamera(wish: { sprint: boolean }, dt = 1 / 60): void {
     const targetEye = this.hiding && this.world.hides.find((h) => h.id === this.hiding)?.kind === 'bed' ? 0.32 : eyeHeight(this.sim.crouching || !!this.hiding)
     this.cameraEye = dt >= 1 ? targetEye : smoothEyeHeight(this.cameraEye, targetEye, dt)
@@ -1187,12 +1192,14 @@ export class Game {
     for (const [id, mesh] of this.built.pickups) mesh.visible = !this.snap.pickedUp.includes(id)
     this.monster.spawn(this.snap.monster, this.snap.monster.yaw, 'Patrol')
     this.director = createDirector()
+    this.creepIn = 12
+    this.scares.dismiss()
+    this.audio.beginScene()
     this.built.mannequin.visible = false
     this.built.secretShelf.position.x = 37.32
     this.viewmodel.visible = true
     this.lunge.visible = false
     this.setMode('playing')
-    if (!this.testMode) this.input.lock()
     this.audio.ensure()
   }
 
@@ -1220,8 +1227,10 @@ export class Game {
     this.fade = 0.4
     this.viewmodel.visible = true
     this.lunge.visible = false
+    this.creepIn = 12
+    this.scares.dismiss()
+    this.audio.beginScene()
     this.setMode('playing')
-    if (!this.testMode) this.input.lock()
     this.audio.ensure()
   }
 
@@ -1260,15 +1269,35 @@ export class Game {
   }
 
   private setMode(mode: Mode): void {
+    const previous = this.mode
     this.mode = mode
     if (mode !== 'playing') {
       this.input.unlock()
       this.audio.setLocomotion(false, false, false)
       this.stepDist = 0
+      if (previous === 'playing') this.audio.suspendTransient()
+    } else if (previous !== 'playing' && !this.testMode) {
+      this.input.lock()
     }
-    this.ui.show(mode === 'playing' ? 'playing' : mode)
+    const screen = mode === 'paused' ? 'pause' : mode
+    this.ui.show(screen === 'playing' ? 'playing' : screen)
     this.audio.duck(mode !== 'playing' && mode !== 'menu')
     if (mode === 'inventory') this.refreshInv()
+  }
+
+  private applyModalKeys(): void {
+    const focused = this.input.formFocused()
+    if (this.mode !== 'playing' || focused) this.input.discard(GAMEPLAY_EDGES)
+    const key = this.input.takeFirst(focused ? ['Escape'] : MODAL_KEYS)
+    const action = modeAction(this.mode, key)
+    if (action.type === 'mode') this.setMode(action.mode)
+    else if (action.type === 'back') this.backFromOverlay()
+  }
+
+  private backFromOverlay(): void {
+    if (this.mode === 'settings') this.setMode(this.settingsFrom === 'slots' ? 'menu' : this.settingsFrom)
+    else if (this.mode === 'slots') this.setMode(this.slotMode === 'save' ? 'paused' : 'menu')
+    else if (this.mode === 'credits' || this.mode === 'exit') this.setMode('menu')
   }
 
   private refreshInv(): void {
@@ -1802,10 +1831,8 @@ export class Game {
       this.ui.fillSettings(this.settings)
       this.setMode('settings')
     } else if (action === 'closeSettings') this.setMode(this.settingsFrom === 'slots' ? 'menu' : this.settingsFrom)
-    else if (action === 'resume') {
-      this.setMode('playing')
-      if (!this.testMode) this.input.lock()
-    } else if (action === 'restart') this.newGame()
+    else if (action === 'resume') this.setMode('playing')
+    else if (action === 'restart') this.newGame()
     else if (action === 'menu') {
       if (!this.ended && this.snap.playTime > 1) this.persist(0)
       this.setMode('menu')
@@ -1890,6 +1917,7 @@ export class Game {
         const aimed = applyMouseLook(game.sim.yaw, game.sim.pitch, x, y, game.settings.invertY)
         game.sim.yaw = aimed.yaw
         game.sim.pitch = aimed.pitch
+        game.syncView()
       },
       act: (name: string) => {
         if (name === 'interact') game.interact()
@@ -1905,8 +1933,7 @@ export class Game {
         game.sim.z = z
         const floor = sampleFloorY(game.world, x, z, y)
         if (floor !== null) game.sim.y = floor
-        game.placeCamera({ sprint: false }, 2)
-        game.camera.getWorldDirection(game.camDir)
+        game.syncView()
       },
       freeze: (v: boolean) => game.setFrozen(v),
       give: (id: string) => {
