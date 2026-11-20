@@ -5,6 +5,8 @@ export interface ScriptState {
   /** 0 idle, 1 silence, 2 figure present, 3 figure gone, 4 finished */
   slagter: number
   slagterT: number
+  /** Unique ids of director beats that have already played. */
+  beats: string[]
 }
 
 export interface ScriptInput {
@@ -19,7 +21,7 @@ export interface ScriptInput {
 }
 
 export function emptyScript(): ScriptState {
-  return { jumps: [], shadowAt: -100, slagter: 0, slagterT: 0 }
+  return { jumps: [], shadowAt: -100, slagter: 0, slagterT: 0, beats: [] }
 }
 
 const JUMPS: { id: string; room: string; needLight: boolean }[] = [
@@ -33,6 +35,7 @@ export function stepScript(prev: ScriptState, input: ScriptInput): { state: Scri
     shadowAt: prev.shadowAt,
     slagter: prev.slagter,
     slagterT: prev.slagterT,
+    beats: (prev.beats ?? []).slice(),
   }
   const cues: string[] = []
   if (input.room && input.room !== input.prevRoom) {

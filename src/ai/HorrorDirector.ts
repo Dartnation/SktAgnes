@@ -42,6 +42,8 @@ export interface DirectorInput {
   tookDamage: boolean
   story: number
   rng: () => number
+  /** An attack, a text panel, or a beat already playing. No new scare this step. */
+  blocked?: boolean
 }
 
 export function createDirector(): DirectorState {
@@ -94,6 +96,10 @@ export function stepDirector(
   s.tension = clamp(s.stress + (input.tookDamage ? 10 : 0), 0, 100)
 
   let event: DirectorEvent | null = null
+  if (input.blocked) {
+    const aggression = clamp((s.tension / 100) * (s.suppress > 0 ? 0.22 : 1), 0, 1)
+    return { state: s, event, aggression }
+  }
   const cd = scareCooldown(s.tension)
   const scarePerSec = s.tension > 30 ? 0.15 + (s.tension / 100) * 0.7 : 0.02
   const roll = input.rng()

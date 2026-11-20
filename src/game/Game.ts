@@ -9,6 +9,7 @@ import { EYE_STAND, eyeHeight, PLAYER_RADIUS, simulatePlayer, smoothEyeHeight, S
 import { applyMouseLook, rightFromYaw, type Vec3 } from '../core/math'
 import { flashlightBanishes, pickRelocate } from '../ai/presence'
 import { emptyScript, stepScript } from '../horror/ScriptedEvents'
+import { advanceEpoch, createSchedule, markRecovery, offerSequences, planBeat, stepSchedule, type ScheduleState } from '../horror/Schedule'
 import { lineOfSight, overlapsSolid, selectInteract, type InteractCandidate } from '../physics/Collision'
 import { activeColliders, buildWorld, doorBlocksNav, inZone, patrolPoints, roomAt, sampleFloorY, type World } from '../world/buildWorld'
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
@@ -60,6 +61,7 @@ export class Game {
   private atmo: Atmosphere
   private scares: JumpscareEngine
   private director: DirectorState = createDirector()
+  private schedule: ScheduleState = createSchedule()
   private settings: Settings
   private storage: StorageLike
   private mode: Mode = 'menu'
@@ -469,6 +471,7 @@ export class Game {
       tookDamage: this.damage > 0.85,
       story: storyProgress(this.snap),
       rng: Math.random,
+      blocked: this.monster.bb.state === 'Attack' || this.lungeT > 0 || this.scares.fx.face > 0,
     })
     this.director = step.state
     this.aggression = step.aggression
@@ -1198,6 +1201,7 @@ export class Game {
     for (const [id, mesh] of this.built.pickups) mesh.visible = !this.snap.pickedUp.includes(id)
     this.monster.spawn(this.snap.monster, this.snap.monster.yaw, 'Patrol')
     this.director = createDirector()
+    this.schedule = createSchedule()
     this.creepIn = 12
     this.scares.dismiss()
     this.audio.beginScene()
@@ -1236,6 +1240,7 @@ export class Game {
     this.viewmodel.visible = true
     this.lunge.visible = false
     this.creepIn = 12
+    this.schedule = advanceEpoch(this.schedule)
     this.scares.dismiss()
     this.audio.beginScene()
     this.setMode('playing')
@@ -1424,6 +1429,11 @@ export class Game {
     this.prevRoom = room
     this.prevFlash = this.sim.flashlightOn
     for (const cue of stepped.cues) this.fireCue(cue, hit?.id)
+    if (stepped.cues.some((cue) => cue.startsWith('jump') || cue === 'figure')) {
+      this.schedule = markRecovery(this.schedule, this.snap.playTime, 20)
+      this.director = { ...this.director, suppress: Math.max(this.director.suppress, 6) }
+    }
+    this.runSchedule(room, dt)
     if (this.lungeT > 0) {
       this.lungeT = Math.max(0, this.lungeT - dt)
       this.lunge.visible = this.lungeT > 0
@@ -1437,6 +1447,64 @@ export class Game {
       this.shadowMesh.position.y = this.shadowFrom.y + 1
       this.shadowMesh.visible = this.shadowT > 0
       this.audio.moveTracked(this.shadowMesh.position)
+    }
+  }
+
+  private runSchedule(room: string, dt: number): void {
+    if (!this.snap.events.beats) this.snap.events.beats = []
+    for (const beat of offerSequences({
+      time: this.snap.playTime,
+      room,
+      readIds: this.snap.readIds,
+      fired: this.snap.events.beats,
+    })) {
+      this.schedule = planBeat(this.schedule, beat)
+    }
+    const stepped = stepSchedule(this.schedule, {
+      dt,
+      time: this.snap.playTime,
+      room,
+      blocked: this.monster.bb.state === 'Attack' || this.lungeT > 0 || this.scares.fx.face > 0,
+      firedIds: this.snap.events.beats,
+    })
+    this.schedule = stepped.state
+    for (const beat of stepped.fired) this.playBeat(beat.id)
+  }
+
+  private playBeat(id: string): void {
+    if (!this.snap.events.beats.includes(id)) this.snap.events.beats.push(id)
+    this.director = { ...this.director, suppress: Math.max(this.director.suppress, 8), sinceScare: 0 }
+    if (id === 'reception_wake') {
+      this.lightCut.set('reception_0', this.snap.playTime + 0.45)
+      this.lightCut.set('reception_1', this.snap.playTime + 1.15)
+      this.lightCut.set('reception_2', this.snap.playTime + 1.9)
+      this.audio.play('door', { x: 14, y: 0, z: 6 }, { volume: 0.45, occluded: true })
+      this.ui.subtitle('Majas brev peger mod arkivet.')
+      this.subtitleT = 2.4
+      return
+    }
+    if (id === 'arkiv_names') {
+      this.shadowFrom.set(6, this.sim.y, 3.4)
+      this.shadowTo.copy(this.shadowFrom)
+      this.shadowT = 1.1
+      this.audio.play('paper', { x: 6, y: this.sim.y + 1, z: 3.4 }, { volume: 0.7 })
+      this.ui.subtitle('Navnene stemmer ikke med journalen.')
+      this.subtitleT = 2.4
+      return
+    }
+    if (id === 'obduktion_witness') {
+      const y = this.sim.y
+      this.audio.play('metallic', { x: this.sim.x, y: y + 0.8, z: this.sim.z }, { volume: 0.65 })
+      for (const lit of this.built.lights) {
+        if (lit.def.room === 'operationsstue' || lit.def.room === 'obduktion') {
+          this.lightCut.set(lit.def.id, this.snap.playTime + 2.4)
+        }
+      }
+      this.shadowFrom.set(this.sim.x + this.camDir.x * 2.8, y, this.sim.z + this.camDir.z * 2.8)
+      this.shadowTo.copy(this.shadowFrom)
+      this.shadowT = 1.1
+      this.ui.subtitle('Noget står i døråbningen.')
+      this.subtitleT = 2.2
     }
   }
 

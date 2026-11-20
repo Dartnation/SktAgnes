@@ -126,7 +126,12 @@ export function migrateSnapshot(raw: unknown): GameSnapshot | null {
     rosaryCharges: clamp(Math.round(finite(src.rosaryCharges, base.rosaryCharges)), 0, 2),
     iFrame: Math.max(0, finite(src.iFrame, 0)),
     events: src.events && Array.isArray(src.events.jumps)
-      ? { ...emptyScript(), ...src.events, jumps: src.events.jumps.filter((id) => typeof id === 'string') }
+      ? {
+          ...emptyScript(),
+          ...src.events,
+          jumps: src.events.jumps.filter((id) => typeof id === 'string'),
+          beats: Array.isArray(src.events.beats) ? src.events.beats.filter((id) => typeof id === 'string') : [],
+        }
       : emptyScript(),
     readIds,
   }
