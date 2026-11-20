@@ -2,6 +2,7 @@ import type { Vec3 } from '../core/math'
 import { admitVoice, VOICE_LIMITS } from './voice'
 import { CLIP_FILES, clipUrl, type ClipKey } from './clips'
 import { fadeEdges, seamlessTail, signalPeak, signalRms, stepMarks } from './steps'
+import { clampVolume, cueIsFresh, musicBedGain, normalisedGain, REFERENCE_MUSIC, REFERENCE_SFX } from './mix'
 
 type Kind =
   | 'step'
@@ -32,9 +33,16 @@ interface PlayReq {
   kind: Kind
   pos?: Vec3
   volume: number
+  occluded?: boolean
+  rate?: number
+  queuedAt: number
 }
 
 const SCARE: ReadonlySet<string> = new Set(['scream', 'shadow', 'deep', 'metallic'])
+const SYNTHETIC_KINDS: Kind[] = [
+  'door', 'doorSlam', 'locked', 'pickup', 'click', 'fail', 'whisper', 'growl',
+  'sting', 'key', 'generator', 'creak', 'thunder', 'paper', 'heartbeat', 'breath',
+]
 const RECORDED_KIND: Partial<Record<Kind, ClipKey>> = {
   step: 'step',
   stepMonster: 'step',
@@ -67,7 +75,12 @@ export class AudioEngine {
   private queue: PlayReq[] = []
   private voices: { kind: string; until: number }[] = []
   private lastPlayed = new Map<string, number>()
-  private lastPan: StereoPannerNode | null = null
+  private trackedPan: StereoPannerNode | null = null
+  private trackNext = false
+  private heartbeatLevel = 0
+  private breathLevel = 0
+  private nextHeartbeat = 0
+  private nextBreath = 0
   private listenPos: Vec3 = { x: 0, y: 0, z: 0 }
   private listenRight: { x: number; z: number } = { x: -1, z: 0 }
   private moving = false
@@ -118,6 +131,7 @@ export class AudioEngine {
     this.analyser = analyser
     this.applyGains()
     this.buffers.set('tap', tapBuffer(ctx))
+    for (const kind of SYNTHETIC_KINDS) this.buffers.set(`cue:${kind}`, cueBuffer(ctx, kind))
     this.prevState = ctx.state
     ctx.onstatechange = () => {
       const now = ctx.state
@@ -211,52 +225,51 @@ export class AudioEngine {
   }
 
   /** One recorded footfall. No loop, no pitch slide. */
-  playFootstep(sprint: boolean, crouch: boolean): void {
+  playFootstep(sprint: boolean, crouch: boolean, pos?: Vec3, volume = 1): void {
     this.ensure()
     const ctx = this.ctx
-    if (!ctx || ctx.state !== 'running' || !this.slices.length) {
-      this.enqueue({ kind: 'step', volume: crouch ? 0.55 : sprint ? 1.15 : 1 })
-      return
-    }
+    // No delayed burst of footsteps after audio unlock or a slow decode.
+    if (!ctx || ctx.state !== 'running' || !this.slices.length) return
     const slice = this.slices[Math.floor(Math.random() * this.slices.length)]
-    const peak = bufferPeak(slice)
     const target = (crouch ? 0.09 : sprint ? 0.2 : 0.15) * (0.92 + Math.random() * 0.16)
-    const gain = Math.min(3, target / Math.max(0.02, peak * this.sfxVol * this.masterVol))
+    const gain = Math.min(3, normalisedGain(bufferPeak(slice), target) * Math.max(0, volume))
     const rate = 0.97 + Math.random() * 0.06
-    this.fire(slice, this.stepGain, gain, rate, undefined, false)
-    this.mark('step')
+    if (this.fire(slice, this.stepGain, gain, rate, pos, false)) this.mark(pos ? 'stepMonster' : 'step')
   }
 
   play(kind: Kind, pos?: Vec3, opts?: { occluded?: boolean; volume?: number; rate?: number }): void {
     this.ensure()
-    void opts?.rate
-    const volume = opts?.volume ?? 1
+    const volume = Math.max(0, Math.min(2, opts?.volume ?? 1))
     const ctx = this.ctx
-    const recorded = RECORDED_KIND[kind]
-    if (recorded && recorded !== 'step' && !this.buffers.get(recorded)) {
-      this.enqueue({ kind, pos, volume })
-      this.mark(`defer:${kind}`)
-      return
-    }
-    if (!ctx || ctx.state !== 'running') {
-      this.enqueue({ kind, pos, volume })
-      this.mark(`defer:${kind}`)
-      return
-    }
     if (kind === 'step' || kind === 'stepMonster') {
-      this.playFootstep(kind === 'stepMonster', false)
-      if (kind === 'stepMonster') this.mark('stepMonster')
+      if (kind === 'stepMonster') {
+        const now = performance.now() / 1000
+        if (now - (this.lastPlayed.get(kind) ?? -999) < VOICE_LIMITS.stepMonster.gap) return
+        this.lastPlayed.set(kind, now)
+      }
+      this.playFootstep(kind === 'stepMonster', false, pos, volume)
       return
     }
-    this.emit(kind, pos, volume, !!opts?.occluded)
+    const recorded = RECORDED_KIND[kind]
+    if ((recorded && !this.buffers.has(recorded)) || !ctx || ctx.state !== 'running') {
+      this.enqueue({ kind, pos, volume, occluded: opts?.occluded, rate: opts?.rate })
+      this.mark(`defer:${kind}`)
+      return
+    }
+    this.emit(kind, pos, volume, !!opts?.occluded, opts?.rate ?? 1)
   }
 
   playTracked(kind: 'shadow' | 'deep', pos: Vec3): void {
-    this.play(kind, pos, { volume: 1 })
+    this.trackNext = true
+    try {
+      this.play(kind, pos, { volume: 1 })
+    } finally {
+      this.trackNext = false
+    }
   }
 
   moveTracked(pos: Vec3): void {
-    const pan = this.lastPan
+    const pan = this.trackedPan
     if (!pan) return
     const side = this.panOf(pos)
     pan.pan.value = side
