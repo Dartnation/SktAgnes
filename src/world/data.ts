@@ -260,6 +260,7 @@ export const PROPS: PropDef[] = [
   P('pers_armchair', 'personalerum', 'chair', 39.4, 9.15, 0.46, 0.46, 0.93),
   P('kael_shelf', 'kaeldergang', 'shelf', 2.1, 9.55, 0.5, 2.1, 1.9),
   P('kael_cart', 'kaeldergang', 'medicalcart', 9.55, 2.0, 0.8, 0.57, 0.9),
+  P('kael_locker', 'kaeldergang', 'locker', 7.4, 9.65, 0.74, 0.56, 1.75),
   P('kap_pew1', 'kapel', 'pew', 15, 2.0, 1.65, 0.5, 0.9),
   P('kap_pew2', 'kapel', 'pew', 20.7, 2.0, 1.65, 0.5, 0.9),
   P('kap_filing', 'kapel', 'recordcabinet', 22.4, 9.6, 0.75, 0.45, 1.6),
