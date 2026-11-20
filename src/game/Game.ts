@@ -1605,12 +1605,26 @@ export class Game {
     eyeL.position.set(-0.06, 0.03, 0.08)
     const eyeR = eyeL.clone()
     eyeR.position.x = 0.065
-    const pupil = new THREE.MeshBasicMaterial({ color: '#ff2418' })
+    const pupil = new THREE.MeshBasicMaterial({ color: '#ac281d' })
     const pL = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), pupil)
     pL.position.set(-0.06, 0.03, 0.1)
     const pR = pL.clone()
     pR.position.x = 0.065
     g.add(face, eyeL, eyeR, pL, pR)
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.17,0.042,0.016),ink)
+    mouth.position.set(0,-0.075,0.097)
+    g.add(mouth)
+    const wound = new THREE.MeshBasicMaterial({color:'#4f1715',depthTest:false})
+    for (let i=0;i<5;i++) {
+      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.009,0.035,4),pale)
+      tooth.position.set((i-2)*0.031,-0.073,0.111)
+      tooth.rotation.z=Math.PI
+      g.add(tooth)
+      const scar = new THREE.Mesh(new THREE.BoxGeometry(0.008,0.06+(i%2)*0.028,0.006),wound)
+      scar.position.set(-0.115+i*0.04,-0.12+i*0.008,0.089)
+      scar.rotation.z=0.3
+      g.add(scar)
+    }
     g.position.set(0, 0, -0.7)
     g.visible = false
     g.renderOrder = 20
@@ -1618,23 +1632,74 @@ export class Game {
   }
 
   private buildButcher(): THREE.Group {
+    // Second apparition: a ruined orderly with an apron and a worn mask.
+    // Visual only — scripted appearances and collision remain unchanged.
     const g = new THREE.Group()
     g.position.set(40, 0, 3)
-    const skin = new THREE.MeshStandardMaterial({ color: '#1a1618', roughness: 0.9 })
-    const pale = new THREE.MeshStandardMaterial({ color: '#d9d0c4', roughness: 0.6 })
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.7, 4, 8), skin)
-    body.position.y = 1.05
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), pale)
-    head.scale.set(0.9, 1.2, 0.55)
-    head.position.y = 1.72
-    g.add(body, head)
-    for (let i = 0; i < 4; i++) {
-      const hook = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.012, 6, 10), new THREE.MeshStandardMaterial({ color: '#5a534c', metalness: 0.7, roughness: 0.4 }))
-      hook.position.set(-1.2 + i * 0.55, 2.35, -0.2)
-      hook.rotation.x = Math.PI / 2
+    const coat = new THREE.MeshStandardMaterial({ color: '#292628', roughness: 0.99, side: THREE.DoubleSide })
+    const cloth = new THREE.MeshStandardMaterial({ color: '#665b4e', roughness: 0.98, side: THREE.DoubleSide })
+    const blood = new THREE.MeshStandardMaterial({ color: '#481919', roughness: 0.87 })
+    const mask = new THREE.MeshStandardMaterial({ color: '#a69e8d', roughness: 0.88 })
+    const iron = new THREE.MeshStandardMaterial({ color: '#66615b', metalness: 0.7, roughness: 0.52 })
+    const skin = new THREE.MeshStandardMaterial({ color: '#5e4d46', roughness: 0.96 })
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.76, 6, 12), coat)
+    body.position.y = 1.11
+    body.castShadow = true
+    g.add(body)
+    for (const side of [-1,1]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.105,0.84,8),coat)
+      leg.position.set(side*0.14,0.44,0)
+      g.add(leg)
+      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.16,0.39),coat)
+      boot.position.set(side*0.14,0.08,0.095)
+      g.add(boot)
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.085,0.065,0.81,8),coat)
+      arm.position.set(side*0.38,1.18,0.02)
+      arm.rotation.z=side*0.18
+      g.add(arm)
+      const glove = new THREE.Mesh(new THREE.SphereGeometry(0.09,10,8),skin)
+      glove.position.set(side*0.46,0.76,0.04)
+      g.add(glove)
+    }
+    const apron = new THREE.Mesh(new THREE.PlaneGeometry(0.52,0.95),cloth)
+    apron.position.set(0,1.0,0.29)
+    apron.rotation.z=0.045
+    g.add(apron)
+    for (let i=0; i<5; i++) {
+      const stain = new THREE.Mesh(new THREE.BoxGeometry(0.045,0.22+(i%3)*0.06,0.01),blood)
+      stain.position.set((i-2)*0.09,1.01-(i%2)*0.16,0.304)
+      stain.rotation.z=(i-2)*0.1
+      g.add(stain)
+    }
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.19,18,14),skin)
+    head.scale.set(0.87,1.14,0.8)
+    head.position.set(0,1.78,0.02)
+    head.castShadow = true
+    g.add(head)
+    const surgicalMask = new THREE.Mesh(new THREE.BoxGeometry(0.30,0.14,0.035),mask)
+    surgicalMask.position.set(0,1.71,0.17)
+    g.add(surgicalMask)
+    const eyes = new THREE.MeshStandardMaterial({color:'#17100e',roughness:0.95})
+    for (const side of [-1,1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.048,10,8),eyes)
+      eye.position.set(side*0.08,1.845,0.165)
+      eye.scale.set(1.1,0.48,0.65)
+      g.add(eye)
+      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.034,0.72,0.032),cloth)
+      strap.position.set(side*0.235,1.26,0.29)
+      g.add(strap)
+    }
+    const cleaver = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.42,0.018),iron)
+    cleaver.position.set(0.48,0.52,0.17)
+    cleaver.rotation.z=-0.2
+    g.add(cleaver)
+    for (let i=0;i<4;i++) {
+      const hook = new THREE.Mesh(new THREE.TorusGeometry(0.07,0.013,6,12,Math.PI*1.65),iron)
+      hook.position.set(-1.18+i*0.72,2.4,-0.25)
+      hook.rotation.x=Math.PI/2
       g.add(hook)
     }
-    g.visible = false
+    g.visible=false
     return g
   }
 
