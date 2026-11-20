@@ -145,7 +145,6 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     const x0 = stair.x + 0.15
     const width = stair.w - 0.3
     for (let i = 0; i < steps; i++) {
-      const t0 = i / steps
       const t1 = (i + 1) / steps
       const top = y0 + t1 * rise
       const z = stair.z + i * depth
