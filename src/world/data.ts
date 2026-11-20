@@ -197,8 +197,8 @@ export const CONNECTIONS: ConnectionDef[] = [
 export const STAIRS: StairDef[] = [
   // The stair flights are offset from the door and have a real mid-floor landing.
   // Old gap: just 0.4m at the Personnel Room door, too narrow for a player.
-  { id: 'stair_01', x: 50.4, z: 0.6, w: 4.4, d: 4.75, fromFloor: 0, toFloor: 1, axis: 'z' },
-  { id: 'stair_12', x: 50.4, z: 6.65, w: 4.4, d: 4.75, fromFloor: 1, toFloor: 2, axis: 'z' },
+  { id: 'stair_01', x: 50.1, z: 0.6, w: 3.8, d: 4.75, fromFloor: 0, toFloor: 1, axis: 'z' },
+  { id: 'stair_12', x: 50.1, z: 6.65, w: 3.8, d: 4.75, fromFloor: 1, toFloor: 2, axis: 'z' },
 ]
 
 function P(
