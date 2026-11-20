@@ -153,11 +153,12 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.setClearColor(0x07060a)
     this.scene.background = new THREE.Color(0x07060a)
-    this.scene.fog = new THREE.FogExp2(0x0c0b10, 0.024)
-    this.scene.add(new THREE.AmbientLight(0x2a2428, 0.11))
-    const hemi = new THREE.HemisphereLight(0x314058, 0x120e0c, 0.38)
+    this.scene.fog = new THREE.FogExp2(0x0a0b0f, 0.028)
+    // Keep a trace of moonlight for orientation, but darkness must matter.
+    this.scene.add(new THREE.AmbientLight(0x20262d, 0.028))
+    const hemi = new THREE.HemisphereLight(0x243343, 0x0d0c0b, 0.075)
     this.scene.add(hemi)
-    const moon = new THREE.DirectionalLight(0xb9c4d6, 0.12)
+    const moon = new THREE.DirectionalLight(0x899baa, 0.018)
     moon.position.set(-20, 40, -10)
     this.scene.add(moon)
 
@@ -167,7 +168,7 @@ export class Game {
     this.scene.add(this.monster.group)
     this.atmo = new Atmosphere(this.scene, 24)
     this.scene.add(this.camera)
-    this.spot = new THREE.SpotLight('#fff1d4', 0, 18, 0.5, 0.65, 1.15)
+    this.spot = new THREE.SpotLight('#f5ead7', 0, 21, 0.49, 0.57, 1.15)
     this.spot.castShadow = this.settings.quality !== 'low'
     this.spot.shadow.mapSize.set(this.settings.quality === 'high' ? 1024 : 512, this.settings.quality === 'high' ? 1024 : 512)
     this.spot.shadow.bias = -0.00025
@@ -859,7 +860,7 @@ export class Game {
     const flicker = on && band === 'critical' && Math.sin(t * 18) > 0.55 ? 0.45 : 1
     const dim = band === 'low' ? 0.72 : band === 'critical' ? 0.5 : 1
     const charge = Math.max(0.2, this.sim.battery / 100)
-    this.spot.intensity = on ? 58 * charge * dim * flicker : 0
+    this.spot.intensity = on ? 53 * charge * dim * flicker : 0
     const lamp = this.viewmodel.position
     this.spot.position.set(lamp.x, lamp.y + 0.02, lamp.z - 0.2)
     this.spot.target.position.set(lamp.x, lamp.y + 0.02, -12)
@@ -891,7 +892,7 @@ export class Game {
     }
     const u = this.post.uniforms
     const blur = this.settings.motionBlur ? Math.min(0.02, Math.hypot(this.sim.vx, this.sim.vz) * 0.002) : 0
-    u.uExposure.value = 1.05 * this.settings.brightness
+    u.uExposure.value = 0.87 * this.settings.brightness
     u.uDamage.value = this.damage
     u.uFade.value = this.fade
     u.uGrain.value = 0
@@ -904,7 +905,7 @@ export class Game {
     this.trauma = Math.max(0, this.trauma - dt)
     this.flash = Math.max(0, this.flash - dt * 1.5)
     const fog = this.scene.fog as THREE.FogExp2
-    fog.density = 0.02 + this.director.tension * 0.00008
+    fog.density = 0.025 + this.director.tension * 0.00007
     this.post.render()
     if (this.subtitleT <= 0 && this.mode === 'playing') this.ui.subtitle('')
   }
@@ -915,10 +916,16 @@ export class Game {
       const cut = this.lightCut.get(entry.def.id) ?? 0
       if (playing && cut > this.snap.playTime) level *= 0.05
       if (entry.def.flicker && level > 0) {
-        const n = 0.8 + 0.2 * Math.abs(Math.sin(t * 7.5 + entry.def.x) * Math.sin(t * 13 + entry.def.z))
-        const dip = Math.sin(t * 0.63 + entry.def.x) > 0.985 ? 0.15 : 1
-        level *= n * dip
+        // Asynchronous low-frequency variation; short faults are independent
+        // for each lamp. Avoid constant high-rate strobing.
+        const seed = entry.def.x * 0.59 + entry.def.z * 0.31
+        const slow = 0.88 + 0.12 * Math.sin(t * 0.57 + seed)
+        const faulty = Math.sin(t * 0.71 + seed) + 0.52 * Math.sin(t * 1.19 + seed * 2.8)
+        const failed = faulty > (entry.def.room === 'reception' ? 0.98 : 1.24)
+        const dip = failed ? 0.17 + 0.18 * (0.5 + 0.5 * Math.sin(t * 3.1 + seed)) : 1
+        level *= Math.max(0.06, slow * dip)
       }
+      if (entry.lens) entry.lens.emissiveIntensity = Math.max(0.012, level * 1.1)
       if (entry.light instanceof THREE.SpotLight || entry.light instanceof THREE.PointLight) {
         entry.light.intensity = entry.base * level
         entry.light.castShadow = this.settings.quality !== 'low' && entry.def.room === 'hall'
