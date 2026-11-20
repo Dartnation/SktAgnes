@@ -106,6 +106,7 @@ export class UI {
   }
 
   show(name: string): void {
+    if (name === 'paused') name = 'pause'
     for (const el of this.root.querySelectorAll('.screen')) el.classList.add('hidden')
     this.q('#loading').classList.toggle('hidden', name !== 'loading')
     this.q('#fatal').classList.toggle('hidden', name !== 'fatal')
@@ -307,7 +308,7 @@ const TEMPLATE = `
     <button class="menu-btn" id="btn-settings">Indstillinger</button>
     <button class="menu-btn" id="btn-credits">Kreditter</button>
     <button class="menu-btn" id="btn-exit">Afslut</button>
-    <p class="controls-hint">WASD gå · Shift løb · Ctrl krøb · Mellemrum hop<br>E brug · F lygte · R batteri · Q rosenkrans<br>G smid · Tab inventar · Esc pause · F3 ydelse · F4 lyd</p>
+    <p class="controls-hint">WASD gå · Shift løb · Ctrl krøb · Mellemrum hop<br>E brug · F lygte · R batteri · Q rosenkrans<br>G smid · I/Tab inventar · Esc pause · F3 ydelse · F4 lyd</p>
   </div>
 </section>
 <section id="pause" class="screen hidden">

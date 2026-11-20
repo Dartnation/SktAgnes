@@ -70,6 +70,13 @@ export class JumpscareEngine {
     return this.trigger(kind, now) ? kind : null
   }
 
+  dismiss(): void {
+    this.kindTimer = 0
+    this.fx = { trauma: 0, flash: 0, chroma: 0.35, face: 0, behind: 0, subtitle: '' }
+    this.faceMesh.visible = false
+    this.behindMesh.visible = false
+  }
+
   update(dt: number): void {
     this.kindTimer -= dt
     this.fx.trauma = Math.max(0, this.fx.trauma - dt * 0.8)

@@ -1,12 +1,8 @@
-import { expect, test } from '@playwright/test'
-import fs from 'node:fs'
-
-const shots = '/opt/cursor/artifacts'
-fs.mkdirSync(shots, { recursive: true })
+import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
 test.setTimeout(300000)
 
-async function shoot(page: import('@playwright/test').Page, file: string) {
+async function shoot(page: Page, testInfo: TestInfo, name: string) {
   await page.evaluate(() => window.__AGNES__?.freeze?.(true))
   await page.evaluate(() => {
     try {
@@ -19,11 +15,11 @@ async function shoot(page: import('@playwright/test').Page, file: string) {
       /* software GL can refuse a readback; the screenshot still shows the frame */
     }
   })
-  await page.screenshot({ path: file, timeout: 15000 })
+  await page.screenshot({ path: testInfo.outputPath(name), timeout: 15000 })
   await page.evaluate(() => window.__AGNES__?.freeze?.(false))
 }
 
-test('menu, level, movement, monster, scare, door, save and restart', async ({ page }) => {
+test('menu, level, movement, monster, scare, door, save and restart', async ({ page }, testInfo) => {
   const errors: string[] = []
   const failed: string[] = []
   page.on('pageerror', (err) => errors.push(err.message))
@@ -37,12 +33,12 @@ test('menu, level, movement, monster, scare, door, save and restart', async ({ p
   await page.goto('/?test=1')
   await expect(page.locator('h1')).toHaveText('SKT. AGNES')
   await expect(page.locator('#btn-new')).toBeVisible()
-  await page.screenshot({ path: `${shots}/menu.png` })
+  await page.screenshot({ path: testInfo.outputPath('menu.png') })
 
   await page.locator('#btn-settings').click()
   await expect(page.locator('#settings')).toBeVisible()
   await page.locator('#set-master').fill('0.4')
-  await page.screenshot({ path: `${shots}/settings.png` })
+  await page.screenshot({ path: testInfo.outputPath('settings.png') })
   await page.locator('#btn-settings-back').click()
 
   await page.locator('#btn-new').click()
@@ -52,7 +48,7 @@ test('menu, level, movement, monster, scare, door, save and restart', async ({ p
   await page.waitForTimeout(400)
   const alive = await page.evaluate(() => (document.querySelector('canvas') as HTMLCanvasElement).width)
   expect(alive).toBeGreaterThan(100)
-  await shoot(page, `${shots}/hall.png`)
+  await shoot(page, testInfo, 'hall.png')
   await expect(page.locator('#bat-label')).toContainText('%')
   const looked = await page.evaluate(() => {
     const before = window.__AGNES__!.snapshot().player.pitch
@@ -64,7 +60,10 @@ test('menu, level, movement, monster, scare, door, save and restart', async ({ p
 
   const before = await page.evaluate(() => window.__AGNES__!.snapshot().player)
   await page.evaluate(() => window.__AGNES__!.setMove({ forward: 1 }))
-  await page.waitForTimeout(700)
+  await page.waitForFunction((start) => {
+    const p = window.__AGNES__!.snapshot().player
+    return Math.hypot(p.x - start.x, p.z - start.z) > 0.4 && p.x > start.x
+  }, before, { timeout: 8000 })
   await page.evaluate(() => window.__AGNES__!.setMove(null))
   const after = await page.evaluate(() => window.__AGNES__!.snapshot().player)
   expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeGreaterThan(0.4)
@@ -108,23 +107,23 @@ test('menu, level, movement, monster, scare, door, save and restart', async ({ p
   })
   await page.waitForTimeout(200)
   await page.evaluate(() => window.__AGNES__!.faceMonster(Math.PI))
-  await shoot(page, `${shots}/monster.png`)
+  await shoot(page, testInfo, 'monster.png')
 
   await page.evaluate(() => window.__AGNES__!.scare('face'))
   await page.waitForTimeout(80)
   expect(await page.evaluate(() => window.__AGNES__!.lastScare())).toBe('face')
-  await shoot(page, `${shots}/scare.png`)
+  await shoot(page, testInfo, 'scare.png')
 
   await page.evaluate(() => {
-    window.__AGNES__!.teleport(9.2, 0, 6)
+    window.__AGNES__!.teleport(10.4, 0, 6)
     const p = window.__AGNES__!.snapshot().player
     window.__AGNES__!.look(p.yaw - Math.PI / 2, 0)
   })
   await page.waitForTimeout(200)
-  await shoot(page, `${shots}/door-closed.png`)
+  await shoot(page, testInfo, 'door-closed.png')
   await page.evaluate(() => window.__AGNES__!.act('interact'))
   await page.waitForFunction(() => window.__AGNES__!.doorOpen('door_rec_pat'), null, { timeout: 15000 })
-  await shoot(page, `${shots}/corridor.png`)
+  await shoot(page, testInfo, 'corridor.png')
 
   await page.evaluate(() => {
     window.__AGNES__!.teleport(6, 0, 6)
@@ -147,7 +146,7 @@ test('menu, level, movement, monster, scare, door, save and restart', async ({ p
 
   await page.evaluate(() => window.__AGNES__!.act('inventory'))
   await expect(page.locator('#inventory')).toBeVisible()
-  await shoot(page, `${shots}/inventory.png`)
+  await shoot(page, testInfo, 'inventory.png')
 
   expect(failed, failed.join('\n')).toEqual([])
   expect(errors, errors.join('\n')).toEqual([])

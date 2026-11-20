@@ -1,12 +1,8 @@
 import { expect, test } from '@playwright/test'
-import fs from 'node:fs'
-
-const shots = '/opt/cursor/artifacts'
-fs.mkdirSync(shots, { recursive: true })
 
 test.setTimeout(120000)
 
-test('menu is a corridor and the mix is audible without crackle', async ({ page, browserName }) => {
+test('menu is a corridor and the mix is audible without crackle', async ({ page, browserName }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', (err) => errors.push(err.message))
   await page.goto('/?test=1')
@@ -19,7 +15,7 @@ test('menu is a corridor and the mix is audible without crackle', async ({ page,
     if (!gl) return
     gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4))
   })
-  const menuShot = browserName === 'firefox' ? `${shots}/menu-firefox.png` : `${shots}/menu-chromium.png`
+  const menuShot = testInfo.outputPath(browserName === 'firefox' ? 'menu-firefox.png' : 'menu-chromium.png')
   await page.screenshot({ path: menuShot, timeout: 20000 })
   await page.evaluate(() => window.__AGNES__?.freeze?.(false))
 
@@ -36,7 +32,7 @@ test('menu is a corridor and the mix is audible without crackle', async ({ page,
       if (!gl) return
       gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4))
     })
-    await page.screenshot({ path: `${shots}/minimap-firefox.png`, timeout: 20000 })
+    await page.screenshot({ path: testInfo.outputPath('minimap-firefox.png'), timeout: 20000 })
     await page.evaluate(() => window.__AGNES__?.freeze?.(false))
   }
   const quiet = await page.evaluate(() => window.__AGNES__!.probe(700))

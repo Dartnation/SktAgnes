@@ -1,0 +1,42 @@
+export type GameMode =
+  | 'menu'
+  | 'playing'
+  | 'paused'
+  | 'inventory'
+  | 'examine'
+  | 'keypad'
+  | 'settings'
+  | 'slots'
+  | 'credits'
+  | 'exit'
+  | 'ending'
+
+export const MODAL_KEYS = ['Escape', 'Tab', 'KeyI'] as const
+export const GAMEPLAY_EDGES = ['KeyE', 'KeyF', 'KeyR', 'KeyG', 'KeyQ', 'Space', 'F3', 'F4', 'F6', 'F7'] as const
+
+export type ModeAction =
+  | { type: 'mode'; mode: GameMode }
+  | { type: 'back' }
+  | { type: 'none' }
+
+/**
+ * Tastatur skifter kun tilstand. Selve spilopdateringen kører ikke, mens en
+ * modal er åben, så lukning skal kunne ske herfra.
+ */
+export function modeAction(mode: GameMode, key: string | null): ModeAction {
+  if (!key) return { type: 'none' }
+  if (mode === 'playing') {
+    if (key === 'Escape') return { type: 'mode', mode: 'paused' }
+    if (key === 'Tab' || key === 'KeyI') return { type: 'mode', mode: 'inventory' }
+  } else if (mode === 'paused') {
+    if (key === 'Escape') return { type: 'mode', mode: 'playing' }
+    if (key === 'Tab' || key === 'KeyI') return { type: 'mode', mode: 'inventory' }
+  } else if (mode === 'inventory') {
+    if (key === 'Escape' || key === 'Tab' || key === 'KeyI') return { type: 'mode', mode: 'playing' }
+  } else if (mode === 'examine' || mode === 'keypad') {
+    if (key === 'Escape') return { type: 'mode', mode: 'playing' }
+  } else if (mode === 'settings' || mode === 'slots' || mode === 'credits' || mode === 'exit') {
+    if (key === 'Escape') return { type: 'back' }
+  }
+  return { type: 'none' }
+}

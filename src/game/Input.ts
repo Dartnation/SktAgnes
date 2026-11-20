@@ -17,6 +17,7 @@ export class Input {
 
   constructor(private el: HTMLElement) {
     window.addEventListener('keydown', (e) => {
+      if (isFormField(e.target) && e.code !== 'Escape') return
       if (e.ctrlKey || e.metaKey || e.code === 'ControlLeft' || e.code === 'ControlRight') e.preventDefault()
       if (e.repeat) return
       this.keys.add(e.code)
@@ -72,6 +73,23 @@ export class Input {
     return true
   }
 
+  formFocused(): boolean {
+    return isFormField(document.activeElement)
+  }
+
+  takeFirst(codes: readonly string[]): string | null {
+    for (const code of codes) {
+      if (!this.edges.has(code)) continue
+      this.edges.delete(code)
+      return code
+    }
+    return null
+  }
+
+  discard(codes: readonly string[]): void {
+    for (const code of codes) this.edges.delete(code)
+  }
+
   lock(): void {
     const c = this.el as HTMLElement & { requestPointerLock?: () => Promise<void> | void }
     const p = c.requestPointerLock?.()
@@ -81,4 +99,14 @@ export class Input {
   unlock(): void {
     if (document.pointerLockElement) document.exitPointerLock()
   }
+}
+
+function isFormField(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName
+  if (tag === 'TEXTAREA' || tag === 'SELECT') return true
+  if (tag !== 'INPUT') return false
+  const type = (target as HTMLInputElement).type
+  return type !== 'button' && type !== 'submit' && type !== 'checkbox' && type !== 'radio'
 }

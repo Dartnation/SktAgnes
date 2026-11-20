@@ -2,7 +2,7 @@ import type { Vec3 } from '../core/math'
 import { admitVoice, VOICE_LIMITS } from './voice'
 import { CLIP_FILES, clipUrl, type ClipKey } from './clips'
 import { fadeEdges, seamlessTail, signalPeak, signalRms, stepMarks } from './steps'
-import { clampVolume, cueIsFresh, musicBedGain, normalisedGain, REFERENCE_MUSIC, REFERENCE_SFX } from './mix'
+import { acceptQueuedCue, clampVolume, musicBedGain, normalisedGain, normaliseTension, REFERENCE_MUSIC, REFERENCE_SFX } from './mix'
 
 type Kind =
   | 'step'
@@ -41,6 +41,7 @@ interface PlayReq {
   occluded?: boolean
   rate?: number
   queuedAt: number
+  epoch: number
 }
 
 const SCARE: ReadonlySet<string> = new Set(['scream', 'shadow', 'deep', 'metallic'])
@@ -80,6 +81,8 @@ export class AudioEngine {
   private bedBase = 0.4
   private prevState = ''
   private queue: PlayReq[] = []
+  private epoch = 1
+  private liveSources = new Set<AudioBufferSourceNode>()
   private voices: { kind: string; until: number }[] = []
   private lastPlayed = new Map<string, number>()
   private trackedPan: StereoPannerNode | null = null
@@ -339,7 +342,28 @@ export class AudioEngine {
 
   /** Environmental beds respond softly to scene tension, without extra footsteps. */
   setTension(tension: number, chasing: boolean): void {
-    this.tension = clampVolume(tension + (chasing ? 0.25 : 0))
+    this.tension = normaliseTension(tension, chasing)
+  }
+
+  /** Drop queued and in-flight one-shots when a save loads or a new game starts. */
+  beginScene(): void {
+    this.epoch += 1
+    this.queue = []
+    this.heartbeatLevel = 0
+    this.breathLevel = 0
+    this.stopLive()
+    this.holdAmbience(2.4)
+    this.mark(`scene:${this.epoch}`)
+  }
+
+  /** Pause, inventory and other overlays must not finish a scare that already ended. */
+  suspendTransient(): void {
+    this.queue = []
+    this.heartbeatLevel = 0
+    this.breathLevel = 0
+    this.stopLive()
+    this.holdAmbience(1.6)
+    this.mark('suspend')
   }
 
   setHeartbeat(level: number): void { this.heartbeatLevel = clampVolume(level) }
@@ -532,9 +556,11 @@ export class AudioEngine {
       if (this.trackNext) this.trackedPan = pan
     } else amp.connect(bus)
     if (bus === this.stepGain) this.activeSteps.add({ source: src, amp })
+    this.liveSources.add(src)
     src.start(t)
     src.stop(t + dur + 0.03)
     src.onended = () => {
+      this.liveSources.delete(src)
       for (const item of this.activeSteps) {
         if (item.source === src) this.activeSteps.delete(item)
       }
@@ -557,9 +583,9 @@ export class AudioEngine {
     return Math.max(-0.7, Math.min(0.7, side))
   }
 
-  private enqueue(req: Omit<PlayReq, 'queuedAt'>): void {
+  private enqueue(req: Omit<PlayReq, 'queuedAt' | 'epoch'>): void {
     if (SCARE.has(req.kind) || req.kind === 'flash') this.queue = this.queue.filter(q => q.kind !== req.kind)
-    this.queue.push({ ...req, queuedAt: performance.now() })
+    this.queue.push({ ...req, queuedAt: performance.now(), epoch: this.epoch })
     if (this.queue.length > 8) this.queue.shift()
   }
 
@@ -567,12 +593,31 @@ export class AudioEngine {
     if (!this.ctx || this.ctx.state !== 'running') return
     const batch = this.queue.splice(0)
     for (const req of batch) {
-      if (!cueIsFresh(req.kind, performance.now() - req.queuedAt)) { this.mark(`expired:${req.kind}`); continue }
+      if (!acceptQueuedCue(req.epoch, this.epoch, performance.now() - req.queuedAt, req.kind)) {
+        this.mark(`expired:${req.kind}`)
+        continue
+      }
       if (req.kind === 'step' || req.kind === 'stepMonster') continue
       const key = RECORDED_KIND[req.kind]
       if (key && !this.buffers.has(key)) { this.queue.push(req); continue }
       this.emit(req.kind, req.pos, req.volume, !!req.occluded, req.rate ?? 1)
     }
+  }
+
+  private holdAmbience(seconds: number): void {
+    const t = (this.ctx?.currentTime ?? 0) + Math.max(0, seconds)
+    this.nextEnvironmentalCue = Math.max(this.nextEnvironmentalCue, t)
+    this.nextHeartbeat = Math.max(this.nextHeartbeat, t)
+    this.nextBreath = Math.max(this.nextBreath, t)
+    this.nextElectricalCue = Math.max(this.nextElectricalCue, t)
+  }
+
+  private stopLive(): void {
+    for (const src of this.liveSources) {
+      try { src.stop() } catch { /* already ended */ }
+    }
+    this.liveSources.clear()
+    this.activeSteps.clear()
   }
 
   private ensureBed(): void {

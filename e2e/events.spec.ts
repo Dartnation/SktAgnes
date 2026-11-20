@@ -1,8 +1,5 @@
-import { expect, test } from '@playwright/test'
-import fs from 'node:fs'
+import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
-const shots = '/opt/cursor/artifacts'
-fs.mkdirSync(shots, { recursive: true })
 const files = [
   'fodtrin-gaaende.mp3',
   'lommelygte-taend-sluk.mp3',
@@ -14,7 +11,7 @@ const files = [
 
 test.setTimeout(180000)
 
-async function shoot(page: import('@playwright/test').Page, file: string) {
+async function shoot(page: Page, testInfo: TestInfo, name: string) {
   await page.evaluate(() => window.__AGNES__?.freeze?.(true))
   await page.evaluate(() => {
     const c = document.querySelector('canvas') as HTMLCanvasElement | null
@@ -22,11 +19,11 @@ async function shoot(page: import('@playwright/test').Page, file: string) {
     if (!gl) return
     gl.readPixels(8, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4))
   })
-  await page.screenshot({ path: file, timeout: 20000 })
+  await page.screenshot({ path: testInfo.outputPath(name), timeout: 20000 })
   await page.evaluate(() => window.__AGNES__?.freeze?.(false))
 }
 
-test('recordings, footsteps, flashlight, monster beam, and scripted events', async ({ page }) => {
+test('recordings, footsteps, flashlight, monster beam, and scripted events', async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', (err) => errors.push(err.message))
   await page.goto('/?test=1')
@@ -59,7 +56,7 @@ test('recordings, footsteps, flashlight, monster beam, and scripted events', asy
   await page.evaluate(() => window.__AGNES__!.act('flashlight'))
   const clicks = await page.evaluate(() => window.__AGNES__!.audioLog().filter((l) => l === 'flash').length)
   expect(clicks).toBeGreaterThan(clicksBefore)
-  await shoot(page, `${shots}/flashlight-beam.png`)
+  await shoot(page, testInfo, 'flashlight-beam.png')
 
   await page.evaluate(() => {
     window.__AGNES__!.placeMonster(20, 4, 7.2)
@@ -69,33 +66,35 @@ test('recordings, footsteps, flashlight, monster beam, and scripted events', asy
   })
   await page.waitForFunction(() => window.__AGNES__!.monsterHidden(), null, { timeout: 8000 })
 
-  await page.evaluate(() => window.__AGNES__!.teleport(26, 8, 22))
+  await page.evaluate(() => window.__AGNES__!.teleport(30, 0, 6))
   await page.waitForFunction(() => window.__AGNES__!.events().jumps.includes('stue102'), null, { timeout: 8000 })
   await page.waitForFunction(() => window.__AGNES__!.audioLog().includes('scream'), null, { timeout: 4000 })
-  await shoot(page, `${shots}/jumpscare-face.png`)
+  await shoot(page, testInfo, 'jumpscare-face.png')
   await page.evaluate(() => {
-    window.__AGNES__!.teleport(26, 8, 16)
-    window.__AGNES__!.teleport(26, 8, 22)
+    window.__AGNES__!.teleport(18, 0, 6)
+    window.__AGNES__!.teleport(30, 0, 6)
   })
   expect(await page.evaluate(() => window.__AGNES__!.events().jumps.filter((id) => id === 'stue102').length)).toBe(1)
 
   await page.evaluate(() => {
-    window.__AGNES__!.teleport(6, 4, 12.2)
+    window.__AGNES__!.teleport(10.4, 0, 6)
     const p = window.__AGNES__!.snapshot().player
-    if (Math.abs(p.yaw) > 0.02) window.__AGNES__!.look(p.yaw, 0)
+    window.__AGNES__!.look(p.yaw - Math.PI / 2, p.pitch)
+    window.__AGNES__!.act('interact')
   })
+  await page.waitForFunction(() => window.__AGNES__!.doorOpen('door_rec_pat'), null, { timeout: 8000 })
   await page.waitForFunction(() => window.__AGNES__!.audioLog().includes('shadow'), null, { timeout: 8000 })
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(undefined)))))
-  await shoot(page, `${shots}/shadow-door.png`)
+  await shoot(page, testInfo, 'shadow-door.png')
 
-  await page.evaluate(() => window.__AGNES__!.teleport(30, 0, 22))
+  await page.evaluate(() => window.__AGNES__!.teleport(42, 0, 6))
   await page.waitForFunction(() => window.__AGNES__!.audioLog().includes('deep'), null, { timeout: 20000 })
   await page.evaluate(() => {
     const p = window.__AGNES__!.snapshot().player
     window.__AGNES__!.look(p.yaw - 0.7, 0)
   })
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(undefined)))))
-  await shoot(page, `${shots}/slagter-corner.png`)
+  await shoot(page, testInfo, 'slagter-corner.png')
 
   await page.evaluate(() => window.__AGNES__!.emptyLight())
   await page.waitForFunction(() => window.__AGNES__!.audioLog().includes('metallic'), null, { timeout: 8000 })
