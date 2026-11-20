@@ -133,6 +133,8 @@ export class Game {
   private mannequinT = 0
   private looked = 0
   private lightCut = new Map<string, number>()
+  private lampShown = new Map<string, number>()
+  private lampClock = -1
   private spot: THREE.SpotLight
   private cone: THREE.Mesh
   private viewmodel!: THREE.Group
@@ -147,6 +149,7 @@ export class Game {
   private introTime = -1
   private introBeat = -1
   private frameError = false
+  private contextLost = false
   private readonly wantsIntro: boolean
 
   constructor(canvas: HTMLCanvasElement, private ui: UI, storage?: StorageLike) {
@@ -262,7 +265,12 @@ export class Game {
     this.installApi()
     canvas.addEventListener('webglcontextlost', (event) => {
       event.preventDefault()
+      this.contextLost = true
       this.ui.fatal('Grafikkortet slap spillet. Genindlæs siden.')
+    })
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.contextLost = false
+      this.ui.fatal('Grafikkortet kom tilbage. Genindlæs siden for at fortsætte.')
     })
     this.ui.root.querySelector('#intro')?.addEventListener('click', () => {
       if (this.introTime >= 0) this.finishIntro()
@@ -278,7 +286,7 @@ export class Game {
   }
 
   private onFrame = (now: number): void => {
-    if (this.frozen) return
+    if (this.frozen || this.contextLost) return
     try {
       const dt = Math.min(0.05, (now - this.clock) / 1000 || 0)
       this.clock = now
@@ -346,6 +354,7 @@ export class Game {
       this.stepIntro(dt)
       return
     }
+    this.viewmodel.visible = true
     this.snap.playTime += dt
     this.snap.iFrame = Math.max(0, this.snap.iFrame - dt)
     this.rosaryCd = Math.max(0, this.rosaryCd - dt)
@@ -635,6 +644,7 @@ export class Game {
       this.snap.flags.radioOn = !this.snap.flags.radioOn
       this.audio.play('click')
       this.noise('voice')
+      this.say(this.snap.flags.radioOn ? 'Radioen knitrer.' : 'Radioen er slukket.')
     }
   }
 
@@ -717,7 +727,13 @@ export class Game {
     }
     for (const id of need) this.snap.inventory = removeItem(this.snap.inventory, id, 1)
     this.snap.flags.generatorOn = true
-    this.audio.play('generator', { x: 8, y: 1, z: 35 }, { volume: 0.9 })
+    const gen = this.world.devices.find((d) => d.kind === 'generator')
+    const genRoom = gen ? this.world.rooms.find((r) => r.id === gen.room) : undefined
+    this.audio.play('generator', {
+      x: gen?.x ?? 8.8,
+      y: genRoom ? FLOOR_Y[genRoom.floor] + 1 : 9,
+      z: gen?.z ?? 8.35,
+    }, { volume: 0.9 })
     this.say('Nødstrømmen vågner. Bagportens lås har strøm.')
     this.trauma = 0.3
     this.refreshObjective()
@@ -898,7 +914,7 @@ export class Game {
     if (this.mode === 'playing') this.atmo.update(dt, this.camera.position, this.camDir, this.sim.flashlightOn && this.sim.battery > 0)
     const on = this.mode === 'playing' && this.sim.flashlightOn && this.sim.battery > 0
     const band = batteryBand(this.sim.battery)
-    const flicker = on && band === 'critical' && Math.sin(t * 18) > 0.55 ? 0.45 : 1
+    const flicker = on && band === 'critical' ? 0.7 + 0.12 * Math.sin(t * 1.3) : 1
     const dim = band === 'low' ? 0.72 : band === 'critical' ? 0.5 : 1
     const charge = Math.max(0.2, this.sim.battery / 100)
     this.spot.intensity = on ? 53 * charge * dim * flicker : 0
@@ -952,14 +968,20 @@ export class Game {
   }
 
   private tickLights(t: number, playing: boolean): void {
+    const dt = this.lampClock < 0 ? 0 : Math.min(0.05, Math.max(0, t - this.lampClock))
+    this.lampClock = t
     for (const entry of this.built.lights) {
       let level = this.lightLevel(entry.def)
       const cut = this.lightCut.get(entry.def.id) ?? 0
-      if (playing && cut > this.snap.playTime) level *= 0.05
+      if (playing && cut > this.snap.playTime) level *= 0.55
       if (level > 0 && FLICKER_ROOMS.has(entry.def.room)) {
         const seed = entry.def.x * 0.59 + entry.def.z * 0.31
         level *= fixtureFlicker(t, seed, this.settings.reduceFlicker)
       }
+      if (this.snap.flags.radioOn && entry.def.room === 'personalerum') level *= 1.12
+      const shown = this.lampShown.get(entry.def.id)
+      if (shown !== undefined && dt > 0) level = shown + (level - shown) * (1 - Math.exp(-dt * 1.4))
+      this.lampShown.set(entry.def.id, level)
       if (entry.lens) entry.lens.emissiveIntensity = Math.max(0.012, level * 1.1)
       if (entry.light instanceof THREE.SpotLight || entry.light instanceof THREE.PointLight) {
         entry.light.intensity = entry.base * level
@@ -1238,6 +1260,8 @@ export class Game {
     this.introBeat = -1
     this.snap.flags.introDone = false
     this.ui.setIntro('', '')
+    this.ui.cinematic(true)
+    this.viewmodel.visible = false
     this.audio.play('sting', undefined, { volume: 0.22 })
   }
 
@@ -1253,6 +1277,10 @@ export class Game {
       this.ui.setIntro(frame.beat.title, frame.beat.body)
       if (frame.beat.title === 'NYT MÅL') this.audio.play('paper', undefined, { volume: 0.3 })
     }
+    this.viewmodel.visible = false
+    this.lunge.visible = false
+    this.cone.visible = false
+    this.placeCamera({ sprint: false }, dt)
   }
 
   private finishIntro(): void {
@@ -1260,6 +1288,7 @@ export class Game {
     this.introTime = -1
     this.introBeat = -1
     this.snap.flags.introDone = true
+    this.viewmodel.visible = true
     this.ui.hideIntro()
   }
 
@@ -1395,11 +1424,15 @@ export class Game {
       this.audio.setLocomotion(false, false, false)
       this.stepDist = 0
       if (previous === 'playing') this.audio.suspendTransient()
-    } else if (previous !== 'playing' && !this.testMode) {
+    } else if (previous !== 'playing' && !this.testMode && this.introTime < 0) {
       this.input.lock()
     }
     const screen = mode === 'paused' ? 'pause' : mode
     this.ui.show(screen === 'playing' ? 'playing' : screen)
+    if (this.introTime >= 0) {
+      this.viewmodel.visible = false
+      this.ui.cinematic(true)
+    }
     this.audio.duck(mode !== 'playing' && mode !== 'menu')
     if (mode === 'inventory') this.refreshInv()
   }
@@ -2152,6 +2185,22 @@ export class Game {
     window.__AGNES__ = {
       ready: true,
       introOn: () => game.introTime >= 0,
+      hiding: () => game.hiding,
+      face: (yaw: number) => {
+        game.sim.yaw = yaw
+        game.syncView()
+      },
+      gfx: () => {
+        const info = game.renderer.info.render
+        return {
+          fps: game.fps,
+          calls: info.calls,
+          triangles: info.triangles,
+          lights: game.built.lights.filter((entry) => entry.light.visible).length,
+          flash: 0,
+          face: game.scares.fx.face,
+        }
+      },
       lamps: () => game.built.lights.filter((entry) => entry.def.room === 'reception').map((entry) => entry.light.intensity),
       mode: () => game.mode,
       start: () => game.newGame(),
@@ -2272,6 +2321,9 @@ declare global {
     __AGNES__?: {
       ready: boolean
       introOn: () => boolean
+      hiding: () => string | null
+      face: (yaw: number) => void
+      gfx: () => { fps: number; calls: number; triangles: number; lights: number; flash: number; face: number }
       lamps: () => number[]
       mode: () => string
       start: () => void

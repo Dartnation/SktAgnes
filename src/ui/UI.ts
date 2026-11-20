@@ -178,6 +178,11 @@ export class UI {
 
   hideIntro(): void {
     this.q('#intro').classList.add('hidden')
+    this.cinematic(false)
+  }
+
+  cinematic(on: boolean): void {
+    this.q('#hud').classList.toggle('hidden', on)
   }
 
   subtitle(text: string): void {

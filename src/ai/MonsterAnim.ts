@@ -12,6 +12,13 @@ export interface ClipPose {
  * Maps the brain's state to a clip. A rigged model can play `clip` directly.
  * Until that model exists, the procedural body uses the same choice.
  */
+/** Spine pitch for the procedural body. A rigged clip can ignore this. */
+export function bodyLean(clip: MonsterClip): number {
+  if (clip === 'Run' || clip === 'Attack') return 0.62
+  if (clip === 'Search') return 0.5
+  return 0.36
+}
+
 export function clipForState(state: MonsterStateName, speed: number): ClipPose {
   if (state === 'Attack') return { clip: 'Attack', timeScale: 1 }
   if (state === 'Search' || state === 'Investigate' || state === 'Suspicious' || state === 'LostPlayer') {

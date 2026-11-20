@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { angDiff, forwardFromYaw, type Vec3 } from '../core/math'
 import { findPath, type NavGrid, type PathQuery } from './Pathfinding'
 import { createMonsterBB, stepMonster, type MonsterBB, type MonsterStateName } from './MonsterBrain'
-import { beamEffect, clipForState } from './MonsterAnim'
+import { beamEffect, bodyLean, clipForState } from './MonsterAnim'
 import { approximateHearing, beamHits, canHear, hearingScale, inVisionCone, noiseLoudness, type NoiseKind } from './senses'
 import { resolveMovement, type AABB } from '../physics/Collision'
 import type { DoorInst } from '../world/buildWorld'
@@ -452,14 +452,14 @@ export class MonsterActor {
     const searching = pose.clip === 'Search'
     const moving = pose.clip === 'Walk' || pose.clip === 'Run'
     this.phase += dt * (moving ? (1.7 + Math.min(speed, 4) * 0.7) * pose.timeScale : 0.45)
-    const s = moving ? Math.sin(this.phase) : searching ? Math.sin(this.phase * 0.6) * 0.25 : 0
+    const s = moving ? Math.sin(this.phase) : searching ? Math.sin(this.phase * 0.45) * 0.35 : 0
     const step = pose.clip === 'Run' ? 0.62 : 0.48
     if (this.thighL && this.shinL && this.footL) this.poseLeg(this.thighL, this.shinL, this.footL, s, step)
     if (this.thighR && this.shinR && this.footR) this.poseLeg(this.thighR, this.shinR, this.footR, -s, step)
     if (this.armL && this.foreL) this.poseArm(this.armL, this.foreL, -s, chasing, -1)
     if (this.armR && this.foreR) this.poseArm(this.armR, this.foreR, s, chasing, 1)
     if (this.spine) {
-      const lean = chasing ? 0.62 : 0.36
+      const lean = bodyLean(pose.clip)
       this.spine.rotation.x += (lean - this.spine.rotation.x) * Math.min(1, dt * 3)
     }
     if (this.neck && this.spine) this.neck.rotation.x = -this.spine.rotation.x * 0.7
@@ -468,8 +468,9 @@ export class MonsterActor {
       this.pelvis.position.y = 0.96 + bob
     }
     if (this.head) {
-      this.head.rotation.x = (chasing ? 0.12 : 0.02) + Math.sin(this.phase * 0.37) * 0.04
-      this.head.rotation.y = Math.max(-0.7, Math.min(0.7, this.lookAt)) * 0.35 + Math.sin(this.phase * 0.23) * 0.06
+      const scan = searching ? Math.sin(this.phase * 0.55) * 0.55 : 0
+      this.head.rotation.x = (chasing ? 0.12 : searching ? 0.2 : 0.02) + Math.sin(this.phase * 0.37) * 0.04
+      this.head.rotation.y = Math.max(-0.7, Math.min(0.7, this.lookAt)) * 0.35 + scan + Math.sin(this.phase * 0.23) * 0.06
       this.head.rotation.z = Math.sin(this.phase * 0.51) * 0.04
     }
   }
