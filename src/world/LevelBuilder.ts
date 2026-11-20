@@ -4,12 +4,13 @@ import { hashString } from '../core/math'
 import { FLOOR_Y, WALL_H, type RoomDef } from './data'
 import type { DoorInst, LightDef, World } from './buildWorld'
 import { createMaterials, type Materials } from './textures'
+import { addHospitalSetDressing } from './SetDressing'
 
 export interface BuiltWorld {
   materials: Materials
   doors: Map<string, THREE.Group>
   pickups: Map<string, THREE.Object3D>
-  lights: { def: LightDef; light: THREE.Light; base: number }[]
+  lights: { def: LightDef; light: THREE.Light; base: number; lens?: THREE.MeshStandardMaterial }[]
   mannequin: THREE.Object3D
   pot: THREE.Object3D
   secretShelf: THREE.Object3D
@@ -37,6 +38,7 @@ const WALL_MAT: Record<RoomDef['wallMat'], keyof Materials> = {
 
 export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
   const materials = createMaterials()
+  const disposeDressing = addHospitalSetDressing(scene, world.rooms)
   const buckets = new Map<string, THREE.BufferGeometry[]>()
   const push = (key: string, geo: THREE.BufferGeometry) => {
     const list = buckets.get(key) ?? []
@@ -343,23 +345,34 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
       scene.add(pt)
       light = pt
     }
-    const shade = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.22, 0.28, 0.12, 12),
-      new THREE.MeshStandardMaterial({ color: '#2a2622', roughness: 0.6, metalness: 0.2 }),
-    )
-    shade.position.set(def.x, def.y - 0.02, def.z)
-    const bulb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.06, 10, 8),
-      new THREE.MeshStandardMaterial({
-        color: def.color,
-        emissive: def.color,
-        emissiveIntensity: 0.45,
-        roughness: 0.4,
-      }),
-    )
-    bulb.position.set(def.x, def.y - 0.12, def.z)
-    scene.add(shade, bulb)
-    lights.push({ def, light, base: def.intensity })
+
+    // 1980s twin-tube fluorescent fitting: long metal housing, cold diffuser,
+    // end caps and visibly emissive tubes. Light level is driven by tickLights.
+    const fixture = new THREE.Group()
+    fixture.position.set(def.x, def.y + 0.14, def.z)
+    const casing = new THREE.MeshStandardMaterial({color:'#333738',metalness:0.65,roughness:0.81})
+    const diffuser = new THREE.MeshStandardMaterial({
+      color: '#b8bdb6', emissive: def.color, emissiveIntensity: 0.55,
+      roughness: 0.34, metalness: 0.04,
+    })
+    const cover = new THREE.Mesh(new THREE.BoxGeometry(1.42,0.12,0.31),casing)
+    cover.castShadow = true
+    fixture.add(cover)
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(1.27,0.026,0.24),materials.trim)
+    panel.position.y = -0.073
+    fixture.add(panel)
+    for (const z of [-0.075,0.075]) {
+      const tube = new THREE.Mesh(new THREE.BoxGeometry(1.22,0.036,0.066),diffuser)
+      tube.position.set(0,-0.108,z)
+      fixture.add(tube)
+    }
+    for (const x of [-0.64,0.64]) {
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.048,0.045,0.27),casing)
+      cap.position.set(x,-0.105,0)
+      fixture.add(cap)
+    }
+    scene.add(fixture)
+    lights.push({ def, light, base: def.intensity, lens: diffuser })
   }
 
   const rainGeo = new THREE.BufferGeometry()
@@ -389,6 +402,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     detail,
     rain,
     dispose() {
+      disposeDressing()
       materials.dispose()
       for (const g of geos) g.dispose()
       chair.geometry.dispose()
