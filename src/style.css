@@ -264,3 +264,342 @@ h1 {
   .menu-btn { font-size: 18px; }
   .bars { width: 120px; }
 }
+
+
+
+/* ================================================================
+   SKT AGNES / ART DIRECTION V1
+   Presentation only. No gameplay, inventory, controls or save logic.
+   Designed for dark, legible hospital-horror UI at 320–1920px.
+   ================================================================ */
+:root {
+  --paper: #efe8dc;
+  --muted: #b3a89d;
+  --blood: #bb4d46;
+  --line: rgba(226, 212, 194, 0.22);
+  --panel: rgba(12, 13, 17, 0.92);
+}
+button { transition: background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease; }
+button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid #e5b982;
+  outline-offset: 3px;
+}
+.screen { overflow-y: auto; }
+.screen:not(.hidden):not(#menu) {
+  background: radial-gradient(ellipse at 53% 43%, rgba(17, 21, 27, .45), rgba(2, 4, 6, .84));
+  backdrop-filter: blur(5px);
+}
+.menu-panel {
+  width: min(520px, 100%);
+  padding: clamp(28px, 6vh, 82px) clamp(28px, 4vw, 64px) 32px;
+  background: linear-gradient(90deg, rgba(7, 9, 12, .96) 0%, rgba(8, 9, 13, .91) 70%, rgba(7, 8, 10, .02) 100%);
+  border-right: 1px solid rgba(165, 70, 62, .15);
+}
+.menu-panel h1 {
+  font-size: clamp(44px, 5vw, 72px);
+  letter-spacing: .11em;
+  text-shadow: 0 3px 18px #000;
+}
+.kicker { color: #c46c5e; letter-spacing: .32em; }
+.tagline { color: #c0b4a7; font-size: 16px; line-height: 1.5; }
+.menu-btn {
+  width: min(300px, 100%);
+  padding: 11px 15px;
+  border: 1px solid transparent;
+  border-left: 2px solid rgba(199, 98, 85, .2);
+  background: linear-gradient(90deg, rgba(240, 224, 200, .035), transparent);
+  font-size: 18px;
+  letter-spacing: .07em;
+}
+.menu-btn:hover:not(:disabled), .menu-btn:focus-visible {
+  background: linear-gradient(90deg, rgba(148, 55, 49, .27), rgba(22, 13, 17, .13));
+  border-color: rgba(206, 125, 105, .33);
+  border-left-color: #d87162;
+  letter-spacing: .07em;
+}
+.controls-hint { max-width: 46ch; font: 12px/1.75 system-ui, sans-serif; opacity: .8; }
+.card {
+  background: linear-gradient(150deg, rgba(22, 25, 29, .985), rgba(8, 9, 12, .96));
+  border: 1px solid rgba(215, 194, 168, .27);
+  box-shadow: 0 28px 95px rgba(0, 0, 0, .74), inset 0 1px rgba(240, 220, 193, .07);
+  border-radius: 4px;
+  padding: clamp(20px, 2.6vw, 38px);
+}
+.card::before {
+  content: "";
+  position: absolute;
+  height: 2px;
+  top: -1px;
+  left: 24px;
+  width: min(126px, 32%);
+  background: linear-gradient(90deg, #cc6c59, transparent);
+  box-shadow: 0 0 19px rgba(215, 57, 39, .22);
+}
+.card h2 {
+  color: #f0e8dc;
+  font-weight: 500;
+  font-size: clamp(23px, 2.2vw, 29px);
+  letter-spacing: .16em;
+}
+.text-btn {
+  border: 1px solid rgba(220, 203, 178, .24);
+  padding: 10px 16px;
+  font-size: 14px;
+  letter-spacing: .08em;
+  background: rgba(0, 0, 0, .2);
+}
+.text-btn:hover {
+  color: #fff;
+  border-color: rgba(231, 142, 124, .68);
+  background: rgba(127, 47, 42, .23);
+  letter-spacing: .08em;
+}
+.note { color: #c2b7aa; font-size: 13px; }
+.row { border-bottom: 1px solid rgba(231, 220, 203, .085); padding-bottom: 9px; }
+.row input[type="range"] { accent-color: #c86a5b; }
+.row select, .slot { background: #151920; border-radius: 3px; padding: 10px; }
+.slot:hover { background: #212127; }
+
+/* The in-game overlay prioritises the world image; controls are quieter. */
+#hud {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  text-shadow: 0 2px 11px rgba(0, 0, 0, .92);
+}
+#hud::before {
+  content: "✝  S K T.  A G N E S";
+  position: absolute;
+  top: 22px;
+  left: 24px;
+  width: 255px;
+  padding-bottom: 11px;
+  color: #f3e8dd;
+  border-bottom: 1px solid rgba(217, 108, 85, .52);
+  font: 500 18px/1.2 Georgia, serif;
+  letter-spacing: .08em;
+}
+#minimap {
+  top: 23px;
+  left: auto;
+  right: 22px;
+  width: 253px;
+  height: 173px;
+  background: rgba(7, 10, 14, .89);
+  border: 1px solid rgba(224, 206, 183, .35);
+  border-radius: 3px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.7), inset 0 0 0 4px rgba(7,8,10,.6);
+  image-rendering: auto;
+}
+.obj {
+  top: 79px;
+  left: 24px;
+  padding: 12px 16px 14px 16px;
+  min-width: 220px;
+  max-width: 315px;
+  border-left: 2px solid #c06a58;
+  background: linear-gradient(90deg, rgba(7,9,13,.82), rgba(7,9,13,.15));
+  font-size: 14px;
+  line-height: 1.5;
+}
+.obj span { color: #e3a26e; font: 600 10px system-ui, sans-serif; letter-spacing: .23em; margin-bottom: 6px; }
+.files {
+  top: 210px;
+  right: 23px;
+  color: #f0e5d2;
+  background: rgba(8,10,13,.68);
+  padding: 6px 8px;
+  border: 1px solid rgba(220,206,187,.12);
+  letter-spacing: .05em;
+  font-size: 11px;
+}
+.cross { width: 3px; height: 3px; background: #e8ded1; box-shadow: 0 0 6px #000; }
+.prompt {
+  bottom: 14.5%;
+  padding: 10px 17px;
+  white-space: nowrap;
+  background: rgba(8,9,12,.78);
+  border: 1px solid rgba(238,221,202,.25);
+  border-radius: 3px;
+  font: 14px "Segoe UI", system-ui, sans-serif;
+  letter-spacing: .02em;
+}
+.prompt:empty { display: none; }
+.prompt b {
+  border-radius: 3px;
+  background: rgba(255,255,255,.08);
+  font: 600 12px system-ui, sans-serif;
+  padding: 5px 8px;
+}
+#btn-inv-hud {
+  left: auto;
+  right: 24px;
+  bottom: 106px;
+  padding: 8px 13px;
+  background: rgba(9,12,16,.87);
+  border: 1px solid rgba(236,221,197,.26);
+  font: 600 12px "Segoe UI", sans-serif;
+  letter-spacing: .1em;
+  border-radius: 3px;
+}
+#btn-inv-hud::before {
+  content: "I";
+  display: inline-grid;
+  place-items: center;
+  height: 19px;
+  width: 19px;
+  margin-right: 9px;
+  border: 1px solid rgba(237,225,207,.56);
+  border-radius: 2px;
+  font: 600 11px "Segoe UI", sans-serif;
+}
+#btn-inv-hud:hover { background: rgba(107,43,40,.8); border-color: #d69d84; }
+.bars, .bars.right {
+  bottom: 20px;
+  width: min(235px, 30vw);
+  padding: 12px 14px;
+  background: linear-gradient(90deg, rgba(7,9,13,.89), rgba(8,9,13,.58));
+  border-top: 1px solid rgba(230,211,183,.3);
+}
+.bars { left: 22px; }
+.bars.right { right: 22px; }
+.bar-label { font: 600 10px "Segoe UI", sans-serif; color: #e9dccd; letter-spacing: .16em; }
+.bar { height: 5px; border: none; margin-top: 8px; background: rgba(223,214,204,.19); }
+.bar i { background: linear-gradient(90deg, #d5bda4, #f2dfc3); }
+.bar.low i { background: linear-gradient(90deg, #772e2e, #d95c54); }
+
+/* Inventory: physical dossier / equipment board, designed around existing hooks. */
+#inventory .card.wide {
+  width: min(1060px, calc(100% - 44px));
+  max-height: min(760px, calc(100vh - 48px));
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(250px, 1fr);
+  grid-template-rows: auto auto minmax(220px, 1fr) auto;
+  column-gap: 26px;
+  row-gap: 13px;
+}
+#inventory h2 { grid-column: 1 / -1; margin: 0; }
+#inventory h2::before {
+  content: "▦";
+  font: 28px system-ui, sans-serif;
+  vertical-align: -1px;
+  color: #cb7968;
+  margin-right: 14px;
+}
+#inv-keys {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0 0 12px;
+  color: #bfb3a6;
+  border-bottom: 1px solid rgba(220,198,169,.24);
+  font: 12px system-ui, sans-serif;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+#inv-list {
+  grid-column: 1;
+  grid-row: 3;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(95px, 1fr);
+  gap: 10px;
+  align-content: start;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 8px 3px 0;
+  max-height: min(46vh, 440px);
+  /* Empty slots are purely decorative; the real buttons remain accessible. */
+  background-image:
+    linear-gradient(90deg, transparent 97%, rgba(212,191,164,.08) 97%),
+    linear-gradient(transparent 97%, rgba(212,191,164,.08) 97%);
+  background-size: 25% 106px;
+  background-position: 0 0;
+}
+.inv-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 98px;
+  padding: 12px 8px;
+  background: linear-gradient(145deg, rgba(50,53,57,.62), rgba(15,17,21,.89));
+  border: 1px solid rgba(225,204,174,.22);
+  box-shadow: inset 0 1px rgba(255,255,255,.025);
+  border-radius: 3px;
+  text-align: center;
+  color: #e9dfd3;
+  font: 12px/1.35 "Segoe UI", sans-serif;
+}
+.inv-item::before { content: "✦"; color: #c7a98a; font: 26px Georgia,serif; }
+.inv-item:hover { background: rgba(86,53,49,.6); border-color: rgba(214,155,125,.65); }
+.inv-item.on {
+  background: linear-gradient(145deg, rgba(101,41,40,.53), rgba(31,20,22,.85));
+  border-color: #cc6b60;
+  box-shadow: inset 0 0 0 1px rgba(214,88,79,.3), 0 0 22px rgba(191,48,42,.15);
+}
+#inv-desc {
+  grid-column: 2;
+  grid-row: 3;
+  margin: 0;
+  padding: 56px 24px 24px;
+  min-height: 220px;
+  overflow-y: auto;
+  max-height: 46vh;
+  position: relative;
+  background: radial-gradient(ellipse at 70% 14%, rgba(106,82,60,.21), transparent 50%), rgba(6,7,9,.46);
+  border: 1px solid rgba(222,197,163,.23);
+  font: 15px/1.65 Georgia,serif;
+  color: #e7d8c6;
+}
+#inv-desc::before {
+  content: "GENSTAND  /  BESKRIVELSE";
+  position: absolute;
+  left: 24px;
+  top: 18px;
+  font: 600 10px "Segoe UI", sans-serif;
+  letter-spacing: .17em;
+  color: #c47c6a;
+}
+#inventory .actions { grid-column: 1 / -1; padding-top: 15px; border-top: 1px solid rgba(222,200,172,.17); }
+#inventory .actions .text-btn:last-child { margin-left: auto; }
+#examine .paper { border: 1px solid #c7b59b; }
+#settings .row { font: 14px "Segoe UI", sans-serif; }
+#subtitle {
+  max-width: min(780px, 80vw);
+  text-align: center;
+  font: italic 16px/1.5 Georgia, serif;
+  background: linear-gradient(90deg, transparent, rgba(0,0,0,.3), transparent);
+  padding: 6px 20px;
+}
+#toast { color: #f0c0a5; font: 14px "Segoe UI", sans-serif; letter-spacing: .11em; }
+
+@media (max-width: 760px) {
+  #hud::before { top: 14px; left: 12px; font-size: 12px; width: 170px; }
+  #minimap { top: 14px; right: 10px; width: 155px; height: 106px; }
+  .obj { left: 12px; top: 53px; min-width: 0; max-width: 155px; font-size: 11px; padding: 8px 10px; }
+  .files { top: 126px; right: 10px; max-width: 150px; }
+  .bars, .bars.right { width: 140px; padding: 9px; bottom: 10px; }
+  .bars { left: 10px; } .bars.right { right: 10px; }
+  #btn-inv-hud { bottom: 95px; right: 10px; }
+  #inventory .card.wide {
+    width: calc(100% - 20px);
+    max-height: calc(100vh - 20px);
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto minmax(155px, 1fr) minmax(80px, .55fr) auto;
+    gap: 10px;
+  }
+  #inv-list { grid-column: 1; grid-row: 3; grid-template-columns: repeat(3,minmax(0,1fr)); grid-auto-rows: 85px; max-height: 30vh; }
+  .inv-item { min-height: 80px; font-size: 11px; }
+  #inv-desc { grid-column: 1; grid-row: 4; max-height: 17vh; min-height: 80px; padding: 42px 14px 10px; font-size: 12px; }
+  #inv-desc::before { left: 14px; top: 12px; }
+  #inventory .actions { grid-row: 5; }
+  #inventory .text-btn { font-size: 11px; padding: 8px 9px; }
+}
+@media (max-height: 540px) {
+  #inventory .card.wide { position: relative; top: 0; left: auto; transform: none; margin: 8px auto; }
+  #inventory { overflow-y: auto; }
+  .obj { top: 56px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button { transition: none; }
+}
