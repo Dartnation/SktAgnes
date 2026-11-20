@@ -113,6 +113,13 @@ export function simulatePlayer(
   return next
 }
 
+/** Camera-only easing; the collider still changes immediately for safe clearance. */
+export function smoothEyeHeight(current: number, target: number, dt: number, speed = 11): number {
+  const seconds = clamp(dt, 0, 0.1)
+  const alpha = 1 - Math.exp(-Math.max(0, speed) * seconds)
+  return current + (target - current) * alpha
+}
+
 export function eyeHeight(crouching: boolean): number {
   return crouching ? EYE_CROUCH : EYE_STAND
 }

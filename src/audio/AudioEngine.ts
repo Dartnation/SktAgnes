@@ -2,6 +2,7 @@ import type { Vec3 } from '../core/math'
 import { admitVoice, VOICE_LIMITS } from './voice'
 import { CLIP_FILES, clipUrl, type ClipKey } from './clips'
 import { fadeEdges, seamlessTail, signalPeak, signalRms, stepMarks } from './steps'
+import { clampVolume, cueIsFresh, musicBedGain, normalisedGain, REFERENCE_MUSIC, REFERENCE_SFX } from './mix'
 
 type Kind =
   | 'step'
@@ -32,9 +33,16 @@ interface PlayReq {
   kind: Kind
   pos?: Vec3
   volume: number
+  occluded?: boolean
+  rate?: number
+  queuedAt: number
 }
 
 const SCARE: ReadonlySet<string> = new Set(['scream', 'shadow', 'deep', 'metallic'])
+const SYNTHETIC_KINDS: Kind[] = [
+  'door', 'doorSlam', 'locked', 'pickup', 'click', 'fail', 'whisper', 'growl',
+  'sting', 'key', 'generator', 'creak', 'thunder', 'paper', 'heartbeat', 'breath',
+]
 const RECORDED_KIND: Partial<Record<Kind, ClipKey>> = {
   step: 'step',
   stepMonster: 'step',
@@ -60,6 +68,7 @@ export class AudioEngine {
   private analyser: AnalyserNode | null = null
   private buffers = new Map<string, AudioBuffer>()
   private slices: AudioBuffer[] = []
+  private activeSteps = new Set<{ source: AudioBufferSourceNode; amp: GainNode }>()
   private bed: AudioBufferSourceNode | null = null
   private bedRunning = false
   private bedBase = 0.4
@@ -67,7 +76,12 @@ export class AudioEngine {
   private queue: PlayReq[] = []
   private voices: { kind: string; until: number }[] = []
   private lastPlayed = new Map<string, number>()
-  private lastPan: StereoPannerNode | null = null
+  private trackedPan: StereoPannerNode | null = null
+  private trackNext = false
+  private heartbeatLevel = 0
+  private breathLevel = 0
+  private nextHeartbeat = 0
+  private nextBreath = 0
   private listenPos: Vec3 = { x: 0, y: 0, z: 0 }
   private listenRight: { x: number; z: number } = { x: -1, z: 0 }
   private moving = false
@@ -118,6 +132,7 @@ export class AudioEngine {
     this.analyser = analyser
     this.applyGains()
     this.buffers.set('tap', tapBuffer(ctx))
+    for (const kind of SYNTHETIC_KINDS) this.buffers.set(`cue:${kind}`, cueBuffer(ctx, kind))
     this.prevState = ctx.state
     ctx.onstatechange = () => {
       const now = ctx.state
@@ -149,7 +164,7 @@ export class AudioEngine {
         this.ensureBed()
         this.flush()
       }
-    })
+    }).catch((e: unknown) => this.fail(`Kunne ikke starte lyd: ${String(e)}`))
   }
 
   async loadClips(): Promise<void> {
@@ -196,67 +211,82 @@ export class AudioEngine {
    */
   setLocomotion(moving: boolean, sprint: boolean, crouch: boolean): void {
     this.ensure()
+    void sprint
+    void crouch
     if (!moving) {
-      if (this.moving) {
-        this.moving = false
+      if (this.moving || this.activeSteps.size > 0) {
+        this.stopFootsteps()
         this.mark('step-stop')
       }
+      this.moving = false
       return
     }
     if (!this.moving) {
       this.moving = true
       this.mark('step-start')
-      this.playFootstep(sprint, crouch)
     }
+    // The game emits steps from distance travelled. Never play on key-down.
+  }
+
+  private stopFootsteps(): void {
+    const ctx = this.ctx
+    if (!ctx) return
+    const t = ctx.currentTime
+    for (const step of this.activeSteps) {
+      step.amp.gain.cancelScheduledValues(t)
+      step.amp.gain.setValueAtTime(step.amp.gain.value, t)
+      step.amp.gain.linearRampToValueAtTime(0.0001, t + 0.035)
+      try { step.source.stop(t + 0.045) } catch { /* already stopped */ }
+    }
+    this.activeSteps.clear()
   }
 
   /** One recorded footfall. No loop, no pitch slide. */
-  playFootstep(sprint: boolean, crouch: boolean): void {
+  playFootstep(sprint: boolean, crouch: boolean, pos?: Vec3, volume = 1): void {
     this.ensure()
     const ctx = this.ctx
-    if (!ctx || ctx.state !== 'running' || !this.slices.length) {
-      this.enqueue({ kind: 'step', volume: crouch ? 0.55 : sprint ? 1.15 : 1 })
-      return
-    }
+    // No delayed burst of footsteps after audio unlock or a slow decode.
+    if (!ctx || ctx.state !== 'running' || !this.slices.length) return
     const slice = this.slices[Math.floor(Math.random() * this.slices.length)]
-    const peak = bufferPeak(slice)
     const target = (crouch ? 0.09 : sprint ? 0.2 : 0.15) * (0.92 + Math.random() * 0.16)
-    const gain = Math.min(3, target / Math.max(0.02, peak * this.sfxVol * this.masterVol))
+    const gain = Math.min(3, normalisedGain(bufferPeak(slice), target) * Math.max(0, volume))
     const rate = 0.97 + Math.random() * 0.06
-    this.fire(slice, this.stepGain, gain, rate, undefined, false)
-    this.mark('step')
+    if (this.fire(slice, this.stepGain, gain, rate, pos, false)) this.mark(pos ? 'stepMonster' : 'step')
   }
 
   play(kind: Kind, pos?: Vec3, opts?: { occluded?: boolean; volume?: number; rate?: number }): void {
     this.ensure()
-    void opts?.rate
-    const volume = opts?.volume ?? 1
+    const volume = Math.max(0, Math.min(2, opts?.volume ?? 1))
     const ctx = this.ctx
-    const recorded = RECORDED_KIND[kind]
-    if (recorded && recorded !== 'step' && !this.buffers.get(recorded)) {
-      this.enqueue({ kind, pos, volume })
-      this.mark(`defer:${kind}`)
-      return
-    }
-    if (!ctx || ctx.state !== 'running') {
-      this.enqueue({ kind, pos, volume })
-      this.mark(`defer:${kind}`)
-      return
-    }
     if (kind === 'step' || kind === 'stepMonster') {
-      this.playFootstep(kind === 'stepMonster', false)
-      if (kind === 'stepMonster') this.mark('stepMonster')
+      if (kind === 'stepMonster') {
+        const now = performance.now() / 1000
+        if (now - (this.lastPlayed.get(kind) ?? -999) < VOICE_LIMITS.stepMonster.gap) return
+        this.lastPlayed.set(kind, now)
+      }
+      this.playFootstep(kind === 'stepMonster', false, pos, volume)
       return
     }
-    this.emit(kind, pos, volume, !!opts?.occluded)
+    const recorded = RECORDED_KIND[kind]
+    if ((recorded && !this.buffers.has(recorded)) || !ctx || ctx.state !== 'running') {
+      this.enqueue({ kind, pos, volume, occluded: opts?.occluded, rate: opts?.rate })
+      this.mark(`defer:${kind}`)
+      return
+    }
+    this.emit(kind, pos, volume, !!opts?.occluded, opts?.rate ?? 1)
   }
 
   playTracked(kind: 'shadow' | 'deep', pos: Vec3): void {
-    this.play(kind, pos, { volume: 1 })
+    this.trackNext = true
+    try {
+      this.play(kind, pos, { volume: 1 })
+    } finally {
+      this.trackNext = false
+    }
   }
 
   moveTracked(pos: Vec3): void {
-    const pan = this.lastPan
+    const pan = this.trackedPan
     if (!pan) return
     const side = this.panOf(pos)
     pan.pan.value = side
@@ -269,15 +299,16 @@ export class AudioEngine {
     const t = ctx.currentTime
     g.gain.cancelScheduledValues(t)
     g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), t)
-    g.gain.linearRampToValueAtTime(Math.max(0.0001, this.bedBase * 0.6), t + 0.05)
-    g.gain.linearRampToValueAtTime(this.bedBase, t + Math.max(0.4, seconds))
+    const base = this.bedBase * this.musicVol / REFERENCE_MUSIC
+    g.gain.linearRampToValueAtTime(Math.max(0, base * 0.35), t + 0.05)
+    g.gain.linearRampToValueAtTime(base, t + Math.max(0.4, seconds))
     this.mark('hush')
   }
 
   setVolumes(master: number, music: number, sfx: number): void {
-    this.masterVol = master
-    this.musicVol = music
-    this.sfxVol = sfx
+    this.masterVol = clampVolume(master)
+    this.musicVol = clampVolume(music)
+    this.sfxVol = clampVolume(sfx)
     this.tuneBed()
     this.applyGains()
   }
@@ -299,13 +330,9 @@ export class AudioEngine {
     void chasing
   }
 
-  setHeartbeat(level: number): void {
-    void level
-  }
+  setHeartbeat(level: number): void { this.heartbeatLevel = clampVolume(level) }
 
-  setBreath(level: number): void {
-    void level
-  }
+  setBreath(level: number): void { this.breathLevel = clampVolume(level) }
 
   setHum(on: boolean, pos: Vec3): void {
     void on
@@ -322,7 +349,19 @@ export class AudioEngine {
   }
 
   update(_dt: number): void {
-    /* levels are set on events, not every frame */
+    const ctx = this.ctx
+    if (!ctx || ctx.state !== 'running' || this.muted) return
+    const t = ctx.currentTime
+    if (this.heartbeatLevel > 0.15 && t >= this.nextHeartbeat) {
+      const beat = this.buffers.get('cue:heartbeat')
+      if (beat) this.fire(beat, this.sfxGain, this.heartbeatLevel * 0.24, 1, undefined, false)
+      this.nextHeartbeat = t + 1 - 0.3 * this.heartbeatLevel
+    }
+    if (this.breathLevel > 0.3 && t >= this.nextBreath) {
+      const breath = this.buffers.get('cue:breath')
+      if (breath) this.fire(breath, this.sfxGain, this.breathLevel * 0.25, 1, undefined, false)
+      this.nextBreath = t + 3.2
+    }
   }
 
   debug(): { state: string; voices: number; sampleRate: number; last: string[]; failures: string[] } {
@@ -403,50 +442,24 @@ export class AudioEngine {
     return { ...level, state: ctx.state, played }
   }
 
-  private emit(kind: Kind, pos: Vec3 | undefined, volume: number, occluded: boolean): void {
+  private emit(kind: Kind, pos: Vec3 | undefined, volume: number, occluded: boolean, rate = 1): void {
     const ctx = this.ctx
-    if (!ctx || ctx.state !== 'running') {
-      this.enqueue({ kind, pos, volume })
-      return
-    }
-    const scare = SCARE.has(kind)
-    const through = scare ? 1 : this.sfxVol
-    if (!scare) {
-      const wall = performance.now() / 1000
-      this.voices = this.voices.filter((v) => v.until > wall)
-      const limit = VOICE_LIMITS[kind] ?? { cap: 2, gap: 0.05 }
-      const since = wall - (this.lastPlayed.get(kind) ?? -999)
-      const active = this.voices.filter((v) => v.kind === kind).length
-      if (!admitVoice(active, limit.cap, since, limit.gap)) return
-    }
+    if (!ctx || ctx.state !== 'running') { this.enqueue({ kind, pos, volume, occluded, rate }); return }
+    const wall = performance.now() / 1000
+    this.voices = this.voices.filter(v => v.until > wall)
+    const limit = VOICE_LIMITS[kind] ?? { cap: 2, gap: 0.05 }
+    if (!admitVoice(this.voices.filter(v => v.kind === kind).length, limit.cap, wall - (this.lastPlayed.get(kind) ?? -999), limit.gap)) return
     const recorded = RECORDED_KIND[kind]
-    let buffer: AudioBuffer | undefined
-    if (recorded && recorded !== 'step') {
-      buffer = this.buffers.get(recorded)
-      if (!buffer) {
-        this.enqueue({ kind, pos, volume })
-        this.mark(`defer:${kind}`)
-        return
-      }
-    } else {
-      buffer = this.buffers.get('tap')
-    }
-    if (!buffer) {
-      this.enqueue({ kind, pos, volume })
-      this.fail(`ingen buffer til ${kind}`)
-      return
-    }
-    const peak = bufferPeak(buffer)
-    const bus = scare ? this.scareGain : this.sfxGain
-    const target = (scare ? 0.52 : kind === 'flash' ? 0.28 : 0.12) * Math.max(0.35, Math.min(1.4, volume))
-    const gain = Math.min(8, target / Math.max(0.01, peak * through * Math.max(0.2, this.masterVol)))
-    const heard = this.fire(buffer, bus, gain * (occluded ? 0.8 : 1), 1, pos, scare)
-    if (!scare && heard) {
-      const wall = performance.now() / 1000
+    const buffer = (recorded ? this.buffers.get(recorded) : this.buffers.get(`cue:${kind}`)) ?? this.buffers.get('tap')
+    if (!buffer) return
+    const scare = SCARE.has(kind)
+    const target = (scare ? 0.45 : kind === 'flash' ? 0.28 : 0.12) * Math.max(0, Math.min(1.4, volume))
+    const gain = normalisedGain(bufferPeak(buffer), target) * (occluded ? 0.65 : 1)
+    if (this.fire(buffer, scare ? this.scareGain : this.sfxGain, gain, rate, pos, scare)) {
       this.lastPlayed.set(kind, wall)
-      this.voices.push({ kind, until: wall + buffer.duration })
+      this.voices.push({kind, until: wall + buffer.duration / Math.max(0.2, rate)})
+      this.mark(kind)
     }
-    this.mark(kind)
   }
 
   /** Schedule at currentTime, never in the past. Returns false if the context is not running. */
@@ -473,30 +486,29 @@ export class AudioEngine {
     amp.gain.setValueAtTime(Math.max(0.0001, gain), t + Math.max(attack, dur - release))
     amp.gain.linearRampToValueAtTime(0.0001, t + dur)
     src.connect(amp)
-    if (pos && !scare) {
-      const pan = ctx.createStereoPanner()
-      pan.pan.value = this.panOf(pos)
+    let pan: StereoPannerNode | null = null
+    if (pos) {
+      pan = ctx.createStereoPanner()
+      pan.pan.value = this.panOf(pos) * (scare ? 0.55 : 1)
       amp.connect(pan)
       pan.connect(bus)
-      this.lastPan = pan
-    } else if (pos && scare) {
-      const pan = ctx.createStereoPanner()
-      pan.pan.value = this.panOf(pos) * 0.55
-      amp.connect(pan)
-      pan.connect(bus)
-      this.lastPan = pan
-    } else {
-      amp.connect(bus)
-    }
+      if (this.trackNext) this.trackedPan = pan
+    } else amp.connect(bus)
+    if (bus === this.stepGain) this.activeSteps.add({ source: src, amp })
     src.start(t)
     src.stop(t + dur + 0.03)
     src.onended = () => {
+      for (const item of this.activeSteps) {
+        if (item.source === src) this.activeSteps.delete(item)
+      }
       try {
         src.disconnect()
         amp.disconnect()
+        pan?.disconnect()
       } catch {
         /* already stopped */
       }
+      if (this.trackedPan === pan) this.trackedPan = null
     }
     return true
   }
@@ -508,9 +520,9 @@ export class AudioEngine {
     return Math.max(-0.7, Math.min(0.7, side))
   }
 
-  private enqueue(req: PlayReq): void {
-    if (SCARE.has(req.kind) || req.kind === 'flash') this.queue = this.queue.filter((q) => q.kind !== req.kind)
-    this.queue.push(req)
+  private enqueue(req: Omit<PlayReq, 'queuedAt'>): void {
+    if (SCARE.has(req.kind) || req.kind === 'flash') this.queue = this.queue.filter(q => q.kind !== req.kind)
+    this.queue.push({ ...req, queuedAt: performance.now() })
     if (this.queue.length > 8) this.queue.shift()
   }
 
@@ -518,20 +530,11 @@ export class AudioEngine {
     if (!this.ctx || this.ctx.state !== 'running') return
     const batch = this.queue.splice(0)
     for (const req of batch) {
-      if (req.kind === 'step' || req.kind === 'stepMonster') {
-        if (!this.slices.length) {
-          this.queue.push(req)
-          continue
-        }
-        this.playFootstep(req.volume > 1, req.volume < 0.7)
-        continue
-      }
+      if (!cueIsFresh(req.kind, performance.now() - req.queuedAt)) { this.mark(`expired:${req.kind}`); continue }
+      if (req.kind === 'step' || req.kind === 'stepMonster') continue
       const key = RECORDED_KIND[req.kind]
-      if (key && key !== 'step' && !this.buffers.get(key)) {
-        this.queue.push(req)
-        continue
-      }
-      this.emit(req.kind, req.pos, req.volume, false)
+      if (key && !this.buffers.has(key)) { this.queue.push(req); continue }
+      this.emit(req.kind, req.pos, req.volume, !!req.occluded, req.rate ?? 1)
     }
   }
 
@@ -570,25 +573,22 @@ export class AudioEngine {
   private tuneBed(): void {
     const buf = this.buffers.get('bed')
     if (!buf) return
-    const rms = bufferRms(buf)
-    const want = 0.063 * (this.musicVol / 0.7)
-    let gain = want / Math.max(0.001, rms * Math.max(0.2, this.masterVol))
-    const peak = bufferPeak(buf)
-    if (peak * gain * this.masterVol > 0.45) gain = 0.45 / Math.max(0.001, peak * this.masterVol)
-    this.bedBase = gain
-    if (this.bedGain && this.ctx) {
-      const t = this.ctx.currentTime
-      this.bedGain.gain.cancelScheduledValues(t)
-      this.bedGain.gain.setValueAtTime(gain, t)
-    }
+    this.bedBase = musicBedGain(bufferRms(buf), bufferPeak(buf))
+    this.applyGains()
   }
 
   private applyGains(): void {
-    const m = this.muted ? 0.4 : 1
-    if (this.master) this.master.gain.value = this.masterVol * m
-    if (this.stepGain) this.stepGain.gain.value = 1
-    if (this.sfxGain) this.sfxGain.gain.value = 1
-    if (this.scareGain) this.scareGain.gain.value = 1
+    const t = this.ctx?.currentTime ?? 0
+    const set = (node: GainNode | null, target: number) => {
+      if (!node) return
+      node.gain.cancelScheduledValues(t)
+      node.gain.setTargetAtTime(target, t, 0.025)
+    }
+    set(this.master, this.masterVol * (this.muted ? 0.4 : 1))
+    set(this.bedGain, this.bedBase * this.musicVol / REFERENCE_MUSIC)
+    set(this.stepGain, this.sfxVol / REFERENCE_SFX)
+    set(this.sfxGain, this.sfxVol / REFERENCE_SFX)
+    set(this.scareGain, this.sfxVol / REFERENCE_SFX)
   }
 
   private cutSteps(buffer: AudioBuffer): AudioBuffer[] {
@@ -662,6 +662,33 @@ function bufferRms(buffer: AudioBuffer): number {
   let rms = 0
   for (let c = 0; c < buffer.numberOfChannels; c++) rms = Math.max(rms, signalRms(buffer.getChannelData(c)))
   return rms
+}
+
+function cueBuffer(ctx: AudioContext, kind: Kind): AudioBuffer {
+  const specs: Partial<Record<Kind, [number, number, number]>> = {
+    door: [0.26,95,55], doorSlam: [0.46,82,38],
+    locked: [0.22,220,155], pickup: [0.21,410,520],
+    click: [0.10,420,280], fail: [0.21,135,65],
+    whisper: [1.4,330,160], growl: [0.75,72,45],
+    sting: [0.8,260,64], key: [0.18,630,740],
+    generator: [1.1,54,85], creak: [0.75,130,68],
+    thunder: [1.6,74,25], paper: [0.2,270,190],
+    heartbeat: [0.3,58,42], breath: [1.25,185,120],
+  }
+  const [duration, startHz, endHz] = specs[kind] ?? [0.1,180,180]
+  const sr = ctx.sampleRate
+  const len = Math.max(64, Math.floor(sr * duration))
+  const buffer = ctx.createBuffer(1,len,sr)
+  const data = buffer.getChannelData(0)
+  let phase = 0
+  for (let i = 0; i < len; i++) {
+    const u = i / len
+    phase += 2 * Math.PI * (startHz + (endHz - startHz) * u) / sr
+    const env = Math.pow(Math.sin(Math.PI*u), 1.3)
+    const pulse = kind === 'heartbeat' ? (u < 0.35 ? 1 : u > 0.48 && u < 0.78 ? 0.55 : 0) : 1
+    data[i] = (Math.sin(phase) * 0.76 + Math.sin(phase*1.98)*0.18)*env*pulse*0.45
+  }
+  return buffer
 }
 
 function tapBuffer(ctx: AudioContext): AudioBuffer {

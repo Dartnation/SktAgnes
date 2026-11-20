@@ -5,7 +5,7 @@ import { createDirector, stepDirector, type DirectorState } from '../ai/HorrorDi
 import { Atmosphere } from '../horror/Atmosphere'
 import { JumpscareEngine } from '../horror/JumpscareEngine'
 import type { ScareKind } from '../horror/ScareLogic'
-import { eyeHeight, simulatePlayer, type SimPlayer } from '../player/PlayerController'
+import { EYE_STAND, eyeHeight, simulatePlayer, smoothEyeHeight, type SimPlayer } from '../player/PlayerController'
 import { applyMouseLook, rightFromYaw, type Vec3 } from '../core/math'
 import { flashlightBanishes, pickRelocate } from '../ai/presence'
 import { emptyScript, stepScript } from '../horror/ScriptedEvents'
@@ -70,6 +70,7 @@ export class Game {
   private unlocked = new Set<string>()
   private hiding: string | null = null
   private holdBreath = false
+  private cameraEye = EYE_STAND
   private bob = 0
   private trauma = 0
   private damage = 0
@@ -128,7 +129,6 @@ export class Game {
   private shadow: THREE.Mesh
   private clock = 0
   private aggression = 0
-  private monAcc = 0
   private camDir = new THREE.Vector3()
   private testMode = new URLSearchParams(location.search).has('test')
   private ended = false
@@ -367,13 +367,13 @@ export class Game {
       if (this.sim.justLanded) this.noise('landing')
       const sprinting = wish.sprint && this.sim.stamina > 5 && !this.sim.crouching
       const inputMove = Math.abs(wish.forward) + Math.abs(wish.strafe) > 0.01
-      const walking = inputMove && this.sim.grounded && Math.hypot(this.sim.vx, this.sim.vz) > 0.2
+      const walking = inputMove && this.sim.grounded && moved > 0.002
       this.audio.setLocomotion(walking, sprinting, this.sim.crouching)
       if (walking) {
         this.stepDist += moved
         const stride = this.sim.crouching ? 0.72 : sprinting ? 1.45 : 1.05
         if (this.stepDist >= stride) {
-          this.stepDist = 0
+          this.stepDist -= stride
           this.audio.playFootstep(sprinting, this.sim.crouching)
           this.noise(this.sim.crouching ? 'crouch' : sprinting ? 'sprint' : 'walk')
           const room = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
@@ -383,11 +383,13 @@ export class Game {
         this.stepDist = 0
       }
       this.separateFromMonster(cols)
-    } else if (wish.crouch === false && this.input.pressed('KeyE')) {
-      /* handled above */
+    } else {
+      // Hiding means there is no walking, regardless of the keys still held.
+      this.audio.setLocomotion(false, false, true)
+      this.stepDist = 0
     }
 
-    this.placeCamera(wish)
+    this.placeCamera(wish, dt)
     this.camera.getWorldDirection(this.camDir)
 
     const allowChase = this.computeChase()
@@ -431,15 +433,8 @@ export class Game {
       this.hurt(28, true)
       this.say('Den fandt dig.')
     }
-    const mspeed = tick.state === 'Chase' ? 4 : tick.state === 'Idle' ? 0 : 1.4
-    if (mspeed > 0 && !this.monster.concealed && this.monster.group.visible) {
-      this.monAcc += dt
-      if (this.monAcc > (tick.state === 'Chase' ? 0.32 : 0.55)) {
-        this.monAcc = 0
-        const occluded = !lineOfSight(this.eyePos(), { x: this.monster.pos.x, y: this.monster.pos.y + 1.4, z: this.monster.pos.z }, cols)
-        this.audio.play('stepMonster', { x: this.monster.pos.x, y: this.monster.pos.y, z: this.monster.pos.z }, { occluded, volume: 0.8 })
-      }
-    }
+    // No footsteps are emitted by the monster: only the player's actual
+    // movement generates walking sounds. Monster threats use growls and cues.
 
     this.herdMonster()
     this.relocateMonster(dt, cols)
@@ -825,8 +820,10 @@ export class Game {
     }
   }
 
-  private placeCamera(wish: { sprint: boolean }): void {
-    const eye = this.hiding && this.world.hides.find((h) => h.id === this.hiding)?.kind === 'bed' ? 0.32 : eyeHeight(this.sim.crouching || !!this.hiding)
+  private placeCamera(wish: { sprint: boolean }, dt = 1 / 60): void {
+    const targetEye = this.hiding && this.world.hides.find((h) => h.id === this.hiding)?.kind === 'bed' ? 0.32 : eyeHeight(this.sim.crouching || !!this.hiding)
+    this.cameraEye = dt >= 1 ? targetEye : smoothEyeHeight(this.cameraEye, targetEye, dt)
+    const eye = this.cameraEye
     const speed = Math.hypot(this.sim.vx, this.sim.vz)
     if (speed > 0.4 && this.sim.grounded && !this.hiding) this.bob += speed * 0.016
     const amp = this.hiding ? 0 : this.sim.crouching ? 0.01 : wish.sprint ? 0.04 : 0.025
@@ -1257,7 +1254,11 @@ export class Game {
 
   private setMode(mode: Mode): void {
     this.mode = mode
-    if (mode !== 'playing') this.input.unlock()
+    if (mode !== 'playing') {
+      this.input.unlock()
+      this.audio.setLocomotion(false, false, false)
+      this.stepDist = 0
+    }
     this.ui.show(mode === 'playing' ? 'playing' : mode)
     this.audio.duck(mode !== 'playing' && mode !== 'menu')
     if (mode === 'inventory') this.refreshInv()
@@ -1396,9 +1397,7 @@ export class Game {
       return
     }
     if (cue === 'steps') {
-      const back = { x: this.sim.x - this.camDir.x * 2.2, y: this.sim.y, z: this.sim.z - this.camDir.z * 2.2 }
-      this.audio.play('stepMonster', back, { volume: 1 })
-      this.audio.trace.push('slagter-steps')
+      // Scripted phantom footsteps were heard even while the player stood still.
       return
     }
     if (cue === 'shadow') this.runShadow(doorId)
@@ -1426,9 +1425,8 @@ export class Game {
     this.shadowMesh.position.y = y + 1
     this.shadowMesh.visible = true
     const at = { x: (this.shadowFrom.x + this.shadowTo.x) / 2, y: y + 1.2, z: (this.shadowFrom.z + this.shadowTo.z) / 2 }
-    this.audio.play('shadow', at, { volume: 1 })
+    this.audio.playTracked('shadow', at)
     this.audio.play('creak', at, { volume: 0.7 })
-    this.audio.play('stepMonster', at, { volume: 0.85 })
     this.audio.setHeartbeat(0.7)
     this.flash = 0.4
     for (const lit of this.built.lights) {
@@ -1834,7 +1832,7 @@ export class Game {
         game.sim.z = z
         const floor = sampleFloorY(game.world, x, z, y)
         if (floor !== null) game.sim.y = floor
-        game.placeCamera({ sprint: false })
+        game.placeCamera({ sprint: false }, 2)
         game.camera.getWorldDirection(game.camDir)
       },
       freeze: (v: boolean) => game.setFrozen(v),
