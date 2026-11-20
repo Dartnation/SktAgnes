@@ -102,6 +102,7 @@ export class UI {
     bindCheck('#set-blur', 'motionBlur')
     bindCheck('#set-shake', 'cameraShake')
     bindCheck('#set-subs', 'subtitles')
+    bindCheck('#set-flicker', 'reduceFlicker')
     bindCheck('#set-full', 'fullscreen')
     bindCheck('#set-invert', 'invertY')
   }
@@ -168,6 +169,17 @@ export class UI {
     this.q('#hurt').style.opacity = String(Math.max(0, Math.min(1, amount)))
   }
 
+  setIntro(title: string, body: string): void {
+    const root = this.q('#intro')
+    root.classList.remove('hidden')
+    this.q('#intro-title').textContent = title
+    this.q('#intro-body').textContent = body
+  }
+
+  hideIntro(): void {
+    this.q('#intro').classList.add('hidden')
+  }
+
   subtitle(text: string): void {
     this.q('#subtitle').textContent = text
   }
@@ -200,6 +212,7 @@ export class UI {
     ;(this.q('#set-blur') as HTMLInputElement).checked = s.motionBlur
     ;(this.q('#set-shake') as HTMLInputElement).checked = s.cameraShake
     ;(this.q('#set-subs') as HTMLInputElement).checked = s.subtitles
+    ;(this.q('#set-flicker') as HTMLInputElement).checked = s.reduceFlicker
     ;(this.q('#set-invert') as HTMLInputElement).checked = s.invertY
     ;(this.q('#set-full') as HTMLInputElement).checked = s.fullscreen
   }
@@ -285,6 +298,13 @@ function escapeHtml(s: string): string {
 const TEMPLATE = `
 <canvas id="view"></canvas>
 <div id="hurt"></div>
+<div id="intro" class="hidden">
+  <div class="intro-card">
+    <p id="intro-title"></p>
+    <p id="intro-body"></p>
+    <p class="intro-skip">Esc springer over</p>
+  </div>
+</div>
 <div id="subtitle"></div>
 <div id="toast"></div>
 <div id="perf" class="hidden"></div>
@@ -339,6 +359,7 @@ const TEMPLATE = `
     <div class="row"><label class="check"><input id="set-blur" type="checkbox"> Bevægelsesslør</label></div>
     <div class="row"><label class="check"><input id="set-shake" type="checkbox"> Kamerarystelser</label></div>
     <div class="row"><label class="check"><input id="set-subs" type="checkbox"> Undertekster</label></div>
+    <div class="row"><label class="check"><input id="set-flicker" type="checkbox"> Reduceret lysflimmer</label></div>
     <div class="row"><label class="check"><input id="set-invert" type="checkbox"> Omvendt Y-akse</label></div>
     <div class="row"><label class="check"><input id="set-full" type="checkbox"> Fuldskærm</label></div>
     <button class="text-btn" id="btn-settings-back">Tilbage</button>

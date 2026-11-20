@@ -15,6 +15,8 @@ export interface Settings {
   fullscreen: boolean
   motionBlur: boolean
   cameraShake: boolean
+  /** Softens fluorescent faults for players who are sensitive to flicker. */
+  reduceFlicker: boolean
   /** Whisper and scare lines. On unless the player turns them off. */
   subtitles: boolean
   /** When true, mouse up looks down. Default is off: mouse up looks up. */
@@ -31,7 +33,7 @@ export function defaultSettings(): Settings {
   return {
     quality,
     resolutionScale: 1,
-    mouseSensitivity: 0.00135,
+    mouseSensitivity: 0.00095,
     masterVolume: 0.8,
     musicVolume: 0.7,
     sfxVolume: 0.85,
@@ -40,6 +42,7 @@ export function defaultSettings(): Settings {
     fullscreen: false,
     motionBlur: false,
     cameraShake: true,
+    reduceFlicker: false,
     subtitles: true,
     invertY: false,
   }
@@ -67,6 +70,7 @@ export function sanitizeSettings(partial: Partial<Settings> | null | undefined):
     fullscreen: typeof p.fullscreen === 'boolean' ? p.fullscreen : d.fullscreen,
     motionBlur: typeof p.motionBlur === 'boolean' ? p.motionBlur : d.motionBlur,
     cameraShake: typeof p.cameraShake === 'boolean' ? p.cameraShake : d.cameraShake,
+    reduceFlicker: typeof p.reduceFlicker === 'boolean' ? p.reduceFlicker : d.reduceFlicker,
     subtitles: typeof p.subtitles === 'boolean' ? p.subtitles : d.subtitles,
     invertY: typeof p.invertY === 'boolean' ? p.invertY : d.invertY,
   }

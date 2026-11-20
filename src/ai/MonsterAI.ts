@@ -361,7 +361,8 @@ export class MonsterActor {
     }
     const goal = this.bb.goal
     const chase = this.bb.state === 'Chase' || this.bb.state === 'Attack'
-    const want = (goal && speed >= 0.05 ? speed : 0) * (chase ? 1.55 : 1)
+    const raw = (goal && speed >= 0.05 ? speed : 0) * (chase ? 1.05 : 1)
+    const want = chase ? Math.min(4.05, raw) : raw
     const accel = want > this.glide ? 2.2 : 5.5
     this.glide += (want - this.glide) * Math.min(1, h.dt * accel)
     if (!goal || this.glide < 0.05) return

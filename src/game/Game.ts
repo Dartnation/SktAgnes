@@ -37,6 +37,8 @@ import {
 } from '../systems/Story'
 import { PostFX } from '../render/PostFX'
 import { backingStore, objectiveRoom, paintMinimap, roomsOf, type MiniGoal } from '../ui/minimap'
+import { introFrame } from '../ui/intro'
+import { FLICKER_ROOMS, fixtureFlicker, visibleLightCount } from '../world/flicker'
 import type { NoiseKind } from '../ai/senses'
 
 type Mode = GameMode
@@ -142,12 +144,18 @@ export class Game {
   private ended = false
   private frozen = false
   private rafId = 0
+  private introTime = -1
+  private introBeat = -1
+  private frameError = false
+  private readonly wantsIntro: boolean
 
   constructor(canvas: HTMLCanvasElement, private ui: UI, storage?: StorageLike) {
     this.storage = storage ?? browserStorage()
     this.settings = loadSettings(this.storage)
-    const test = new URLSearchParams(location.search).has('test')
+    const params = new URLSearchParams(location.search)
+    const test = params.has('test')
     this.testMode = test
+    this.wantsIntro = !test || params.has('intro')
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,
@@ -257,6 +265,13 @@ export class Game {
     this.ui.continueEnabled(!!latestSave(this.storage))
     this.ui.fillSettings(this.settings)
     this.installApi()
+    canvas.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault()
+      this.ui.fatal('Grafikkortet slap spillet. Genindlæs siden.')
+    })
+    this.ui.root.querySelector('#intro')?.addEventListener('click', () => {
+      if (this.introTime >= 0) this.finishIntro()
+    })
   }
 
   start(): void {
@@ -269,26 +284,33 @@ export class Game {
 
   private onFrame = (now: number): void => {
     if (this.frozen) return
-    const dt = Math.min(0.05, (now - this.clock) / 1000 || 0)
-    this.clock = now
-    this.fpsAcc += dt
-    this.fpsFrames++
-    if (this.fpsAcc >= 0.5) {
-      this.fps = this.fpsFrames / this.fpsAcc
-      this.fpsAcc = 0
-      this.fpsFrames = 0
-    }
-    const cap = this.settings.fpsCap
-    if (cap > 0) {
-      this.acc += dt
-      const step = 1 / cap
-      if (this.acc >= step - 0.0001) {
-        const used = Math.min(0.05, this.acc)
-        this.acc = 0
-        this.advance(used)
+    try {
+      const dt = Math.min(0.05, (now - this.clock) / 1000 || 0)
+      this.clock = now
+      this.fpsAcc += dt
+      this.fpsFrames++
+      if (this.fpsAcc >= 0.5) {
+        this.fps = this.fpsFrames / this.fpsAcc
+        this.fpsAcc = 0
+        this.fpsFrames = 0
       }
-    } else {
-      this.advance(dt)
+      const cap = this.settings.fpsCap
+      if (cap > 0) {
+        this.acc += dt
+        const step = 1 / cap
+        if (this.acc >= step - 0.0001) {
+          const used = Math.min(0.05, this.acc)
+          this.acc = 0
+          this.advance(used)
+        }
+      } else {
+        this.advance(dt)
+      }
+    } catch (err) {
+      if (!this.frameError) {
+        this.frameError = true
+        console.error(err)
+      }
     }
     this.rafId = requestAnimationFrame(this.onFrame)
   }
@@ -325,6 +347,10 @@ export class Game {
   }
 
   private updatePlaying(dt: number): void {
+    if (this.introTime >= 0) {
+      this.stepIntro(dt)
+      return
+    }
     this.snap.playTime += dt
     this.snap.iFrame = Math.max(0, this.snap.iFrame - dt)
     this.rosaryCd = Math.max(0, this.rosaryCd - dt)
@@ -335,12 +361,6 @@ export class Game {
     this.noises.length = 0
 
     this.stepPower(dt)
-    if (!this.snap.flags.introDone && this.snap.playTime > 4.2) {
-      this.snap.flags.introDone = true
-      this.trauma = Math.max(this.trauma, 0.45)
-      this.audio.play('doorSlam', { x: this.sim.x, y: this.sim.y, z: this.sim.z - 2 })
-      this.say('Døren faldt i bag dig.')
-    }
     if (!this.autosavedIntro && this.snap.playTime > 2) {
       this.autosavedIntro = true
       this.persist(0)
@@ -503,7 +523,8 @@ export class Game {
     this.audio.setTension(this.director.tension, chasing)
     const stress = (100 - this.snap.player.health) / 140 + (dist < 8 ? 0.35 : 0) + (this.sim.stamina < 30 ? 0.2 : 0)
     this.audio.setHeartbeat(this.hiding || this.snap.player.health < 55 || dist < 7 ? stress : 0)
-    this.audio.setBreath(this.holdBreath ? 0.05 : this.sim.stamina < 25 ? 0.5 : dist < 6 ? 0.25 : 0.05)
+    const tired = this.sim.stamina < 22 ? (22 - this.sim.stamina) / 28 : 0
+    this.audio.setBreath(this.holdBreath ? 0.05 : Math.max(tired, dist < 6 ? 0.25 : 0.05))
     const nearLight = this.nearestLight()
     this.audio.setHum(!!nearLight && this.lightLevel(nearLight.def) > 0.2, nearLight ? { x: nearLight.def.x, y: nearLight.def.y, z: nearLight.def.z } : this.feet())
     this.audio.setRadio(this.snap.flags.radioOn, RADIO_SOURCE)
@@ -852,10 +873,12 @@ export class Game {
     if (speed > 0.4 && this.sim.grounded && !this.hiding) this.bob += speed * 0.016
     const amp = this.hiding ? 0 : this.sim.crouching ? 0.01 : wish.sprint ? 0.04 : 0.025
     const r = rightFromYaw(this.sim.yaw)
+    const tired = this.sim.stamina < 18 && this.settings.cameraShake ? (18 - this.sim.stamina) / 18 : 0
+    const fatigue = Math.sin(performance.now() / 1000 * 1.7) * tired * 0.012
     const shake = this.settings.cameraShake ? this.trauma * this.trauma : 0
     this.camera.position.set(
       this.sim.x + r.x * Math.cos(this.bob) * amp + (Math.random() - 0.5) * shake * 0.12,
-      this.sim.y + eye + Math.sin(this.bob * 2) * amp + (Math.random() - 0.5) * shake * 0.08,
+      this.sim.y + eye + Math.sin(this.bob * 2) * amp + fatigue + (Math.random() - 0.5) * shake * 0.08,
       this.sim.z + r.z * Math.cos(this.bob) * amp,
     )
     this.camera.rotation.order = 'YXZ'
@@ -938,29 +961,29 @@ export class Game {
       let level = this.lightLevel(entry.def)
       const cut = this.lightCut.get(entry.def.id) ?? 0
       if (playing && cut > this.snap.playTime) level *= 0.05
-      if (entry.def.flicker && level > 0) {
-        // Asynchronous low-frequency variation; short faults are independent
-        // for each lamp. Avoid constant high-rate strobing.
+      if (level > 0 && FLICKER_ROOMS.has(entry.def.room)) {
         const seed = entry.def.x * 0.59 + entry.def.z * 0.31
-        const slow = 0.88 + 0.12 * Math.sin(t * 0.57 + seed)
-        const faulty = Math.sin(t * 0.71 + seed) + 0.52 * Math.sin(t * 1.19 + seed * 2.8)
-        const failed = faulty > (entry.def.room === 'reception' ? 0.98 : 1.24)
-        const dip = failed ? 0.17 + 0.18 * (0.5 + 0.5 * Math.sin(t * 3.1 + seed)) : 1
-        level *= Math.max(0.06, slow * dip)
+        level *= fixtureFlicker(t, seed, this.settings.reduceFlicker)
       }
       if (entry.lens) entry.lens.emissiveIntensity = Math.max(0.012, level * 1.1)
       if (entry.light instanceof THREE.SpotLight || entry.light instanceof THREE.PointLight) {
         entry.light.intensity = entry.base * level
-        entry.light.castShadow = this.settings.quality !== 'low' && entry.def.room === 'hall'
       }
     }
-    const max = this.settings.quality === 'low' ? 4 : this.settings.quality === 'medium' ? 8 : 16
+    const max = visibleLightCount(this.settings.quality)
     const ranked = [...this.built.lights].sort(
       (a, b) => Math.hypot(a.def.x - this.camera.position.x, a.def.z - this.camera.position.z) - Math.hypot(b.def.x - this.camera.position.x, b.def.z - this.camera.position.z),
     )
     ranked.forEach((entry, i) => {
-      if (i >= max && entry.light instanceof THREE.PointLight) entry.light.intensity = 0
+      const shown = i < max
+      entry.light.visible = shown
+      if (!shown) entry.light.intensity = 0
     })
+    const near = ranked.find((entry) => entry.light.visible)
+    if (near && playing) {
+      const dipped = near.light.intensity < near.base * 0.4
+      this.audio.setHum(!dipped && this.lightLevel(near.def) > 0.2, { x: near.def.x, y: near.def.y, z: near.def.z })
+    }
   }
 
   private lightLevel(def: { mode: string }): number {
@@ -1210,6 +1233,41 @@ export class Game {
     void cols
   }
 
+  private beginIntro(): void {
+    if (!this.wantsIntro) {
+      this.introTime = -1
+      this.ui.hideIntro()
+      return
+    }
+    this.introTime = 0
+    this.introBeat = -1
+    this.snap.flags.introDone = false
+    this.ui.setIntro('', '')
+    this.audio.play('sting', undefined, { volume: 0.22 })
+  }
+
+  private stepIntro(dt: number): void {
+    this.introTime += dt
+    const frame = introFrame(this.introTime)
+    if (frame.done) {
+      this.finishIntro()
+      return
+    }
+    if (frame.beat && frame.beat.at !== this.introBeat) {
+      this.introBeat = frame.beat.at
+      this.ui.setIntro(frame.beat.title, frame.beat.body)
+      if (frame.beat.title === 'NYT MÅL') this.audio.play('paper', undefined, { volume: 0.3 })
+    }
+  }
+
+  private finishIntro(): void {
+    if (this.introTime < 0) return
+    this.introTime = -1
+    this.introBeat = -1
+    this.snap.flags.introDone = true
+    this.ui.hideIntro()
+  }
+
   private newGame(): void {
     this.snap = createNewGame()
     this.ended = false
@@ -1229,6 +1287,7 @@ export class Game {
     this.schedule = createSchedule()
     this.tone = createTone()
     this.radioAt = -99
+    this.beginIntro()
     this.creepIn = 12
     this.scares.dismiss()
     this.audio.beginScene()
@@ -1270,6 +1329,9 @@ export class Game {
     this.schedule = advanceEpoch(this.schedule)
     this.tone = createTone()
     this.radioAt = -99
+    this.introTime = -1
+    this.introBeat = -1
+    this.ui.hideIntro()
     this.scares.dismiss()
     this.audio.beginScene()
     this.setMode('playing')
@@ -1349,7 +1411,12 @@ export class Game {
 
   private applyModalKeys(): void {
     const focused = this.input.formFocused()
-    if (this.mode !== 'playing' || focused) this.input.discard(GAMEPLAY_EDGES)
+    if (this.mode !== 'playing' || focused || this.introTime >= 0) this.input.discard(GAMEPLAY_EDGES)
+    if (this.introTime >= 0 && !focused) {
+      const skip = this.input.takeFirst(['Escape', 'Enter', 'Space'])
+      if (skip) this.finishIntro()
+      return
+    }
     if (this.mode === 'inventory' && !focused) {
       const choice = inventoryKey(this.input.takeFirst(['ArrowUp', 'ArrowDown', 'KeyW', 'KeyS', 'Enter', 'KeyE']))
       if (choice === 'up') this.invIndex = Math.max(0, this.invIndex - 1)
@@ -2089,6 +2156,8 @@ export class Game {
     const game = this
     window.__AGNES__ = {
       ready: true,
+      introOn: () => game.introTime >= 0,
+      lamps: () => game.built.lights.filter((entry) => entry.def.room === 'reception').map((entry) => entry.light.intensity),
       mode: () => game.mode,
       start: () => game.newGame(),
       snapshot: () => {
@@ -2207,6 +2276,8 @@ declare global {
   interface Window {
     __AGNES__?: {
       ready: boolean
+      introOn: () => boolean
+      lamps: () => number[]
       mode: () => string
       start: () => void
       snapshot: () => GameSnapshot
