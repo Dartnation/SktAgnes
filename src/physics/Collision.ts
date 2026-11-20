@@ -26,6 +26,27 @@ function overlapsHeight(feet: number, height: number, crouching: boolean, box: A
  * Move a vertical capsule on XZ. Walls are resolved per axis so the body
  * slides and cannot tunnel through thin doors. Y is left to the caller.
  */
+/** True when a standing or crouching capsule is already inside a solid. */
+export function overlapsSolid(
+  x: number,
+  y: number,
+  z: number,
+  radius: number,
+  height: number,
+  crouching: boolean,
+  boxes: AABB[],
+): boolean {
+  const top = y + height
+  for (const box of boxes) {
+    if (box.standOnly && crouching) continue
+    if (top <= box.minY + 0.02 || y >= box.maxY - 0.02) continue
+    if (x <= box.minX - radius || x >= box.maxX + radius) continue
+    if (z <= box.minZ - radius || z >= box.maxZ + radius) continue
+    return true
+  }
+  return false
+}
+
 export function resolveMovement(
   pos: { x: number; y: number; z: number },
   delta: { x: number; z: number },
