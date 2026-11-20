@@ -12,9 +12,9 @@ import { emptyScript, stepScript } from '../horror/ScriptedEvents'
 import { advanceEpoch, createSchedule, markRecovery, offerSequences, planBeat, stepSchedule, type ScheduleState } from '../horror/Schedule'
 import { createTone, doorStartedMoving, RADIO_SOURCE, radioPulse, stepRoomTone as advanceRoomTone, type ToneState } from '../audio/roomTone'
 import { lineOfSight, overlapsSolid, selectInteract, type InteractCandidate } from '../physics/Collision'
-import { activeColliders, buildWorld, doorBlocksNav, inZone, patrolPoints, roomAt, sampleFloorY, type World } from '../world/buildWorld'
+import { activeColliders, buildWorld, doorBlocksNav, patrolPoints, roomAt, sampleFloorY, type World } from '../world/buildWorld'
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
-import { EXIT_DOOR, FLOOR_Y, ZONES } from '../world/data'
+import { EXIT_DOOR, FLOOR_Y } from '../world/data'
 import { Input } from './Input'
 import { GAMEPLAY_EDGES, inventoryKey, MODAL_KEYS, modeAction, type GameMode } from './modalInput'
 import { UI } from '../ui/UI'
@@ -29,7 +29,8 @@ import {
   currentObjective,
   fileCount,
   keysFound,
-  missingKeyNames,
+  gateBlock,
+  leaveCause,
   resolveEnding,
   storyProgress,
   type GameSnapshot,
@@ -595,8 +596,9 @@ export class Game {
 
   private checkEnding(): void {
     if (this.ended) return
-    if (inZone(ZONES.yard, this.sim.x, this.sim.z, this.sim.y)) this.finish('yard')
-    else if (inZone(ZONES.tunnel, this.sim.x, this.sim.z, this.sim.y)) this.finish('tunnel')
+    const room = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)?.id ?? ''
+    const cause = leaveCause(this.snap, room, false)
+    if (cause) this.finish(cause)
   }
 
   private interact(): void {
@@ -625,9 +627,9 @@ export class Game {
     if (!door) return
     if (doorBlocksNav(door, this.unlocked)) {
       if (door.id === EXIT_DOOR) {
-        const missing = missingKeyNames(this.snap)
-        if (missing.length) {
-          this.say(`UD TIL STILHEDEN er låst. Mangler: ${missing.join(', ')}.`)
+        const blocked = gateBlock(this.snap)
+        if (blocked) {
+          this.say(blocked)
           this.audio.play('locked', this.doorPos(door), { volume: 0.7 })
           return
         }
@@ -733,7 +735,12 @@ export class Game {
   }
 
   private useShelf(): void {
-    if (this.snap.flags.secretOpen) return
+    const room = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)?.id ?? ''
+    if (this.snap.flags.secretOpen) {
+      const cause = leaveCause(this.snap, room, true)
+      if (cause) this.finish(cause)
+      return
+    }
     if (!hasItem(this.snap.inventory, 'crowbar')) {
       this.say('Hylden rokker sig ikke. Du mangler noget at bryde med.')
       this.audio.play('locked')
@@ -1061,12 +1068,27 @@ export class Game {
     for (const p of this.runtime) {
       list.push({ id: p.id, kind: 'pickup', x: p.x, y: p.y, z: p.z, radius: 0.5, prompt: 'Batteri' })
     }
+    const shelf = this.world.props.find((prop) => prop.id === 'slag_shelf')
+    if (shelf) {
+      const shelfRoom = this.world.rooms.find((item) => item.id === shelf.room)
+      if (shelfRoom) {
+        list.push({
+          id: shelf.id,
+          kind: 'bookshelf',
+          x: shelf.x,
+          y: FLOOR_Y[shelfRoom.floor] + 1,
+          z: shelf.z,
+          radius: 1.1,
+          prompt: this.snap.flags.secretOpen ? 'Kravl ind i tunnellen' : 'Hylde',
+        })
+      }
+    }
     for (const d of this.world.devices) {
       const room = this.world.rooms.find((r) => r.id === d.room)!
       const prompts: Record<string, string> = {
         generator: 'Generator',
         safe: 'Pengeskab',
-        bookshelf: 'Hylde',
+        bookshelf: this.snap.flags.secretOpen ? 'Kravl ind i tunnellen' : 'Hylde',
         radio: 'Radio',
       }
       list.push({
@@ -1710,8 +1732,6 @@ export class Game {
       this.blackout = Math.max(0, this.blackout - dt)
       this.fade = 1
     }
-    const room = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
-    if (room?.id === 'stilhed' && keysFound(this.snap) >= 3) this.finish('yard')
     this.peekCool = Math.max(0, this.peekCool - dt)
     if (this.peekT > 0) {
       this.peekT = Math.max(0, this.peekT - dt)
