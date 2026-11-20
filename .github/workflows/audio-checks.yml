@@ -1,0 +1,25 @@
+name: Audio and build checks
+on:
+  pull_request:
+    paths:
+      - 'src/audio/**'
+      - 'src/game/Game.ts'
+      - 'tests/**'
+      - 'package*.json'
+      - '.github/workflows/audio-checks.yml'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
