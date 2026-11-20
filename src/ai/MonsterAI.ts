@@ -76,9 +76,9 @@ export class MonsterActor {
 
   constructor() {
     const skin = new THREE.MeshStandardMaterial({ color: '#3a3034', roughness: 0.86, metalness: 0.02 })
-    const pale = new THREE.MeshStandardMaterial({ color: '#ddd4c8', roughness: 0.62, metalness: 0 })
+    const pale = new THREE.MeshStandardMaterial({ color: '#242523', roughness: 0.99, metalness: 0 })
     const dark = new THREE.MeshStandardMaterial({ color: '#100c0c', roughness: 0.45 })
-    const pupil = new THREE.MeshStandardMaterial({ color: '#3a0000', emissive: '#ff2a18', emissiveIntensity: 1.4, roughness: 0.35 })
+    const pupil = new THREE.MeshStandardMaterial({ color: '#120b0a', emissive: '#3c100e', emissiveIntensity: 0.09, roughness: 0.98 })
     const ink = new THREE.MeshStandardMaterial({ color: '#1a1412', roughness: 0.5 })
     const agedCloth = new THREE.MeshStandardMaterial({ color: '#403734', roughness: 1, side: THREE.DoubleSide })
     const blood = new THREE.MeshStandardMaterial({ color: '#3f1115', roughness: 0.9 })
@@ -150,36 +150,36 @@ export class MonsterActor {
     head.position.y = 0.14
     this.head = head
     neck.add(head)
-    const face = cast(new THREE.Mesh(new THREE.SphereGeometry(0.15, 28, 18), pale))
-    face.scale.set(0.9, 1.25, 0.62)
-    face.position.y = 0.07
-    const eyeL = almond(dark, pupil, -0.055, 0.09, 0.09, -0.38)
-    const eyeR = almond(dark, pupil, 0.058, 0.085, 0.09, 0.42)
-    const nose = cast(new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.072, 0.004), ink))
-    nose.position.set(0, 0.045, 0.1)
-    const smile = new THREE.Mesh(smileCurve(), ink)
-    head.add(face, eyeL, eyeR, nose, smile)
-    // Cracked eye sockets, stitches, uneven teeth and clotted hair.
-    for (let i=0; i<7; i++) {
-      const tooth = cast(new THREE.Mesh(new THREE.ConeGeometry(0.011,0.036+(i%3)*0.009,4),bone))
-      tooth.rotation.z = Math.PI
-      tooth.position.set((i-3)*0.027,-0.043 + Math.abs(i-3)*0.005,0.105)
-      head.add(tooth)
+    // V3 creature: a shrouded, almost featureless head. Nothing bright or cartoonish.
+    const skull = cast(new THREE.Mesh(new THREE.SphereGeometry(0.145, 18, 12), pale))
+    skull.scale.set(0.89, 1.15, 0.7)
+    skull.position.y = 0.06
+    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.235, 0.34, 9), agedCloth)
+    hood.position.set(0, 0.29, -0.035)
+    hood.rotation.x = -0.17
+    const eyeL = almond(dark, pupil, -0.05, 0.08, 0.093, -0.18)
+    const eyeR = almond(dark, pupil, 0.053, 0.077, 0.093, 0.13)
+    eyeL.scale.set(0.56, 0.66, 0.55)
+    eyeR.scale.set(0.56, 0.66, 0.55)
+    const seam = new THREE.Mesh(smileCurve(), ink)
+    seam.scale.set(0.5, 0.12, 0.24)
+    seam.position.set(0, -0.06, 0.095)
+    head.add(skull, hood, eyeL, eyeR, seam)
+    // Asymmetric rips in a soaked hospital gown; silhouette, not a mask.
+    for (let i = 0; i < 7; i++) {
+      const strip = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.055 + (i % 3) * 0.013, 0.22 + (i % 4) * 0.055),
+        agedCloth,
+      )
+      strip.position.set((i - 3) * 0.05, -0.23 - (i % 2) * 0.03, 0.09)
+      strip.rotation.z = (i - 3) * 0.065
+      head.add(strip)
     }
-    for (let i=0;i<6;i++) {
-      const stitch = new THREE.Mesh(new THREE.BoxGeometry(0.007,0.036,0.007),ink)
-      stitch.position.set(-0.065+i*0.027,-0.083+i*0.008,0.104)
-      stitch.rotation.z=0.5
+    for (let i = 0; i < 4; i++) {
+      const stitch = new THREE.Mesh(new THREE.BoxGeometry(0.009, 0.027, 0.006), ink)
+      stitch.position.set(-0.038 + i * 0.027, -0.12, 0.103)
+      stitch.rotation.z = 0.34
       head.add(stitch)
-    }
-    const eyeShade = cast(new THREE.Mesh(new THREE.BoxGeometry(0.34,0.047,0.03),ink))
-    eyeShade.position.set(0,0.138,0.07)
-    head.add(eyeShade)
-    for(let i=0;i<6;i++) {
-      const spike = cast(new THREE.Mesh(new THREE.ConeGeometry(0.043,0.14+(i%3)*0.035,5),dark))
-      spike.position.set((i-2.5)*0.049,0.27, (i%2)*0.02-0.04)
-      spike.rotation.z=(i-3)*0.26
-      head.add(spike)
     }
 
     this.group.add(pelvis)

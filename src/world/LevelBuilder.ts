@@ -5,6 +5,7 @@ import { FLOOR_Y, WALL_H, type RoomDef } from './data'
 import type { DoorInst, LightDef, World } from './buildWorld'
 import { createMaterials, type Materials } from './textures'
 import { addHospitalSetDressing } from './SetDressing'
+import { addVisualV3 } from './VisualV3'
 
 export interface BuiltWorld {
   materials: Materials
@@ -39,6 +40,7 @@ const WALL_MAT: Record<RoomDef['wallMat'], keyof Materials> = {
 export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
   const materials = createMaterials()
   const disposeDressing = addHospitalSetDressing(scene, world.rooms)
+  const disposeVisualV3 = addVisualV3(scene, world.rooms)
   const buckets = new Map<string, THREE.BufferGeometry[]>()
   const push = (key: string, geo: THREE.BufferGeometry) => {
     const list = buckets.get(key) ?? []
@@ -402,6 +404,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     detail,
     rain,
     dispose() {
+      disposeVisualV3()
       disposeDressing()
       materials.dispose()
       for (const g of geos) g.dispose()

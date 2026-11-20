@@ -52,7 +52,7 @@ export function pickDynamicScare(ctx: ScareContext): ScareKind {
     { k: 'behind', w: ctx.monsterNear ? 0.6 : 2.6 },
     { k: 'door', w: ctx.doorOpenNear ? 3.4 : 0 },
     { k: 'still', w: ctx.inMannequinRoom ? 4 : 0 },
-    { k: 'face', w: ctx.tension > 68 && ctx.monsterNear ? 1.6 : 0 },
+    // V3: avoid giant floating face in player's view.
   ]
   const sum = pool.reduce((a, p) => a + p.w, 0)
   let r = ctx.rng() * sum
