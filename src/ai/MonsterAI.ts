@@ -76,6 +76,9 @@ export class MonsterActor {
     const dark = new THREE.MeshStandardMaterial({ color: '#100c0c', roughness: 0.45 })
     const pupil = new THREE.MeshStandardMaterial({ color: '#3a0000', emissive: '#ff2a18', emissiveIntensity: 1.4, roughness: 0.35 })
     const ink = new THREE.MeshStandardMaterial({ color: '#1a1412', roughness: 0.5 })
+    const agedCloth = new THREE.MeshStandardMaterial({ color: '#403734', roughness: 1, side: THREE.DoubleSide })
+    const blood = new THREE.MeshStandardMaterial({ color: '#3f1115', roughness: 0.9 })
+    const bone = new THREE.MeshStandardMaterial({ color: '#a39882', roughness: 0.98 })
 
     const pelvis = new THREE.Group()
     pelvis.position.y = 0.96
@@ -89,6 +92,27 @@ export class MonsterActor {
     pelvis.add(spine)
     const chest = cast(new THREE.Mesh(torsoShell(), skin))
     spine.add(chest)
+    // Split hospital smock, frayed across a deformity in the chest.
+    const smock = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.67), agedCloth)
+    smock.position.set(0,-0.03,0.185)
+    smock.rotation.z = -0.1
+    spine.add(smock)
+    for (let i=0; i<5; i++) {
+      const rib = cast(new THREE.Mesh(new THREE.BoxGeometry(0.18+i*0.007,0.018,0.025),bone))
+      rib.position.set((i%2 ? -0.08 : 0.08),0.23-i*0.107,0.208)
+      rib.rotation.z = (i%2 ? 1 : -1)*0.21
+      spine.add(rib)
+    }
+    const gore = cast(new THREE.Mesh(new THREE.SphereGeometry(0.10,8,6),blood))
+    gore.scale.set(1.3,0.28,0.25)
+    gore.position.set(0.02,-0.13,0.19)
+    spine.add(gore)
+    for (let i=0;i<5;i++) {
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(0.052,0.23+i*0.05),agedCloth)
+      strip.position.set((i-2)*0.075,-0.43-(i%2)*0.045,0.13)
+      strip.rotation.z=(i-2)*0.09
+      spine.add(strip)
+    }
     const yoke = cast(new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.22, 3, 6), skin))
     yoke.rotation.z = Math.PI / 2
     yoke.position.y = 0.4
@@ -131,6 +155,28 @@ export class MonsterActor {
     nose.position.set(0, 0.045, 0.1)
     const smile = new THREE.Mesh(smileCurve(), ink)
     head.add(face, eyeL, eyeR, nose, smile)
+    // Cracked eye sockets, stitches, uneven teeth and clotted hair.
+    for (let i=0; i<7; i++) {
+      const tooth = cast(new THREE.Mesh(new THREE.ConeGeometry(0.011,0.036+(i%3)*0.009,4),bone))
+      tooth.rotation.z = Math.PI
+      tooth.position.set((i-3)*0.027,-0.043 + Math.abs(i-3)*0.005,0.105)
+      head.add(tooth)
+    }
+    for (let i=0;i<6;i++) {
+      const stitch = new THREE.Mesh(new THREE.BoxGeometry(0.007,0.036,0.007),ink)
+      stitch.position.set(-0.065+i*0.027,-0.083+i*0.008,0.104)
+      stitch.rotation.z=0.5
+      head.add(stitch)
+    }
+    const eyeShade = cast(new THREE.Mesh(new THREE.BoxGeometry(0.34,0.047,0.03),ink))
+    eyeShade.position.set(0,0.138,0.07)
+    head.add(eyeShade)
+    for(let i=0;i<6;i++) {
+      const spike = cast(new THREE.Mesh(new THREE.ConeGeometry(0.043,0.14+(i%3)*0.035,5),dark))
+      spike.position.set((i-2.5)*0.049,0.27, (i%2)*0.02-0.04)
+      spike.rotation.z=(i-3)*0.26
+      head.add(spike)
+    }
 
     this.group.add(pelvis)
     this.group.visible = false
