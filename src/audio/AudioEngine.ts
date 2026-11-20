@@ -380,6 +380,13 @@ export class AudioEngine {
     void pos
   }
 
+  private roomTones = false
+
+  /** Room cues are placed by the game. The old zone loop would double them. */
+  enableRoomTones(): void {
+    this.roomTones = true
+  }
+
   setZone(zone: string): void {
     if (zone === this.envZone) return
     this.envZone = zone
@@ -402,7 +409,7 @@ export class AudioEngine {
     }
     // Rare low-frequency ambience is less tiring than constant rattling. Only
     // environmental audio is generated here; no player/phantom footsteps.
-    if (t >= this.nextEnvironmentalCue) {
+    if (!this.roomTones && t >= this.nextEnvironmentalCue) {
       const seq = this.envSequence++
       const zoneKinds: Record<string, Kind[]> = {
         hall: ['airRumble','pipeKnock','waterDrop'],
