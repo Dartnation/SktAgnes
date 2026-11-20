@@ -184,7 +184,7 @@ export class Game {
     this.scene.add(this.monster.group)
     this.atmo = new Atmosphere(this.scene, 24)
     this.scene.add(this.camera)
-    this.spot = new THREE.SpotLight('#f5ead7', 0, 21, 0.49, 0.57, 1.15)
+    this.spot = new THREE.SpotLight('#eee2cb', 0, 21, 0.5, 0.72, 1.25)
     this.spot.castShadow = this.settings.quality !== 'low'
     this.spot.shadow.mapSize.set(this.settings.quality === 'high' ? 1024 : 512, this.settings.quality === 'high' ? 1024 : 512)
     this.spot.shadow.bias = -0.00025
