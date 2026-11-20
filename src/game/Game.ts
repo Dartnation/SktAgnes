@@ -427,6 +427,10 @@ export class Game {
         return door ? doorBlocksNav(door, this.unlocked) : false
       },
       noises: this.noises,
+      searchSpots: this.world.hides.map((hide) => {
+        const room = this.world.rooms.find((item) => item.id === hide.room)
+        return { id: hide.id, pos: { x: hide.x, y: room ? FLOOR_Y[room.floor] : this.sim.y, z: hide.z } }
+      }),
     })
     if (tick.entered === 'Chase') this.audio.play('growl', this.monster.pos, { volume: 0.8 })
     if (tick.attack) this.hurt(36, true)

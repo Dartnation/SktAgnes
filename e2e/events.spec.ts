@@ -64,7 +64,7 @@ test('recordings, footsteps, flashlight, monster beam, and scripted events', asy
     const p = window.__AGNES__!.snapshot().player
     if (Math.abs(p.yaw) > 0.01) window.__AGNES__!.look(p.yaw, 0)
   })
-  await page.waitForFunction(() => window.__AGNES__!.monsterHidden(), null, { timeout: 8000 })
+  await page.waitForFunction(() => window.__AGNES__!.monsterHidden(), null, { timeout: 15000 })
 
   await page.evaluate(() => window.__AGNES__!.teleport(30, 0, 6))
   await page.waitForFunction(() => window.__AGNES__!.events().jumps.includes('stue102'), null, { timeout: 8000 })

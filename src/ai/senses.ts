@@ -45,6 +45,27 @@ export function hearingScale(floorDelta: number, occluded: boolean): number {
   return floorM * (occluded ? 0.38 : 1)
 }
 
+/**
+ * A noise is a region, not a pin. Louder and closer sounds land nearer the source.
+ * The offset stays on the same floor.
+ */
+export function approximateHearing(
+  source: Vec3,
+  listener: Vec3,
+  loudness: number,
+  rng: () => number,
+): Vec3 {
+  const dist = Math.hypot(source.x - listener.x, source.z - listener.z)
+  const clarity = 1.15 - Math.min(1, Math.max(0, loudness)) * 0.7
+  const error = (1.1 + dist * 0.18) * clarity
+  const ang = rng() * Math.PI * 2
+  return {
+    x: source.x + Math.cos(ang) * error,
+    y: source.y,
+    z: source.z + Math.sin(ang) * error,
+  }
+}
+
 export function canHear(
   listener: Vec3,
   source: Vec3,
