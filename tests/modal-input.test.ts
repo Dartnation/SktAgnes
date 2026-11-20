@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { modeAction } from '../src/game/modalInput'
+import { inventoryKey, modeAction } from '../src/game/modalInput'
 
 describe('inventar og pause', () => {
   it('åbner inventaret med I og Tab og lukker det igen', () => {
@@ -24,5 +24,12 @@ describe('inventar og pause', () => {
     expect(modeAction('menu', 'KeyI')).toEqual({ type: 'none' })
     expect(modeAction('settings', 'Escape')).toEqual({ type: 'back' })
     expect(modeAction('playing', null)).toEqual({ type: 'none' })
+  })
+
+  it('flytter markeringen i inventaret og undersøger den valgte række', () => {
+    expect(inventoryKey('ArrowUp')).toBe('up')
+    expect(inventoryKey('KeyS')).toBe('down')
+    expect(inventoryKey('Enter')).toBe('use')
+    expect(inventoryKey('KeyG')).toBe('none')
   })
 })

@@ -101,6 +101,7 @@ export class UI {
     }
     bindCheck('#set-blur', 'motionBlur')
     bindCheck('#set-shake', 'cameraShake')
+    bindCheck('#set-subs', 'subtitles')
     bindCheck('#set-full', 'fullscreen')
     bindCheck('#set-invert', 'invertY')
   }
@@ -198,6 +199,7 @@ export class UI {
     this.setRange('#set-bright', s.brightness)
     ;(this.q('#set-blur') as HTMLInputElement).checked = s.motionBlur
     ;(this.q('#set-shake') as HTMLInputElement).checked = s.cameraShake
+    ;(this.q('#set-subs') as HTMLInputElement).checked = s.subtitles
     ;(this.q('#set-invert') as HTMLInputElement).checked = s.invertY
     ;(this.q('#set-full') as HTMLInputElement).checked = s.fullscreen
   }
@@ -235,6 +237,7 @@ export class UI {
     items.forEach((item, i) => {
       const btn = document.createElement('button')
       btn.className = 'inv-item' + (i === index ? ' on' : '')
+      if (i === index) btn.setAttribute('aria-current', 'true')
       btn.textContent = item.count > 1 ? `${item.name} ×${item.count}` : item.name
       btn.addEventListener('click', () => this.hooks.selectItem(i))
       list.appendChild(btn)
@@ -335,6 +338,7 @@ const TEMPLATE = `
     <p class="note">Browseren styrer VSync. Loftet her begrænser, hvor ofte billedet tegnes.</p>
     <div class="row"><label class="check"><input id="set-blur" type="checkbox"> Bevægelsesslør</label></div>
     <div class="row"><label class="check"><input id="set-shake" type="checkbox"> Kamerarystelser</label></div>
+    <div class="row"><label class="check"><input id="set-subs" type="checkbox"> Undertekster</label></div>
     <div class="row"><label class="check"><input id="set-invert" type="checkbox"> Omvendt Y-akse</label></div>
     <div class="row"><label class="check"><input id="set-full" type="checkbox"> Fuldskærm</label></div>
     <button class="text-btn" id="btn-settings-back">Tilbage</button>
@@ -365,6 +369,7 @@ const TEMPLATE = `
   <div class="card wide">
     <h2>INVENTAR</h2>
     <p id="inv-keys" class="note">Nøgler fundet: 0/3</p>
+    <p class="note">Pil op og ned vælger. Enter undersøger.</p>
     <div class="inv-list" id="inv-list"></div>
     <p id="inv-desc" class="note"></p>
     <div class="actions">

@@ -22,7 +22,7 @@ export class Input {
       if (e.repeat) return
       this.keys.add(e.code)
       this.edges.add(e.code)
-      if (['KeyE', 'KeyF', 'KeyR', 'Tab', 'KeyI', 'Escape', 'KeyG', 'KeyQ', 'Space', 'F3', 'F4'].includes(e.code)) {
+      if (['KeyE', 'KeyF', 'KeyR', 'Tab', 'KeyI', 'Escape', 'KeyG', 'KeyQ', 'Space', 'F3', 'F4', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.code)) {
         e.preventDefault()
       }
     })
