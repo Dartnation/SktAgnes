@@ -1295,12 +1295,13 @@ export class Game {
   }
 
   private zoneFor(roomId?: string): string {
+    // Sound-only acoustic palette. No gameplay or navigation effects.
     if (!roomId) return 'hall'
-    if (roomId === 'morgue') return 'slagter'
-    if (roomId === 'chapel' || roomId === 'anteroom') return 'chapel'
-    if (roomId.includes('corr') || roomId === 'westcorr' || roomId === 'eastcorr' || roomId === 'ucorr' || roomId === 'bcorr') return 'corridor'
-    if (roomId === 'r102' || roomId === 'tunnel' || roomId === 'secret' || roomId === 'closet') return 'dark'
-    if (this.sim.y < 2) return 'cellar'
+    if (roomId === 'kapel') return 'chapel'
+    if (roomId === 'slagterum' || roomId === 'obduktion') return 'slagter'
+    if (roomId.startsWith('trappe') || roomId === 'patientgang') return 'corridor'
+    if (roomId === 'observation' || roomId === 'kammer' || roomId === 'stilhed') return 'dark'
+    if (roomId === 'kaeldergang') return 'cellar'
     if (this.sim.y > 6) return 'upper'
     return 'hall'
   }
