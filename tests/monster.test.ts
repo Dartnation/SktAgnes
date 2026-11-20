@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { beamEffect, clipForState } from '../src/ai/MonsterAnim'
 import { chooseSearchPoint, createMonsterBB, stepMonster, type SenseInput } from '../src/ai/MonsterBrain'
+import { approximateHearing } from '../src/ai/senses'
 
 function rngOf(value: number): () => number {
   return () => value
@@ -25,6 +27,9 @@ function sense(over: Partial<SenseInput> = {}): SenseInput {
       { x: 0, y: 0, z: 0 },
       { x: 4, y: 0, z: 0 },
     ],
+    knowsHide: false,
+    searchSpots: [],
+    checkedIds: new Set<string>(),
     ...over,
   }
 }
@@ -107,6 +112,7 @@ describe('monster state machine', () => {
         hideSpot: spot,
         monsterPos: { x: 0, y: 0, z: 0 },
         holdBreath: false,
+        knowsHide: true,
         rng: rngOf(0),
       }),
     )
@@ -122,6 +128,29 @@ describe('monster state machine', () => {
       }),
     )
     expect(held.foundHiding).toBe(false)
+    const unknown = stepMonster(
+      createMonsterBB({ state: 'Search', suspicion: 0.9, searchLeft: 5 }),
+      sense({ dt: 1, hiding: true, hideSpot: spot, knowsHide: false, rng: rngOf(0) }),
+    )
+    expect(unknown.foundHiding).toBe(false)
+  })
+
+  it('keeps the last seen place after the player leaves the cone', () => {
+    const bb = createMonsterBB({
+      state: 'Chase',
+      lastSeen: { x: 1, y: 0, z: 1 },
+      goal: { x: 1, y: 0, z: 1 },
+      unseenTime: 0.2,
+    })
+    const still = stepMonster(bb, sense({
+      dt: 0.2,
+      canSee: false,
+      playerPos: { x: 9, y: 0, z: 9 },
+      distance: 12,
+    }))
+    expect(still.bb.state).toBe('Chase')
+    expect(still.bb.goal?.x).toBeCloseTo(1)
+    expect(still.bb.goal?.z).toBeCloseTo(1)
   })
 
   it('prefers an unchecked hiding spot while searching', () => {
@@ -135,5 +164,25 @@ describe('monster state machine', () => {
       rngOf(0),
     )
     expect(pick.id).toBe('a')
+  })
+
+  it('hears a place near the noise, not the exact source', () => {
+    const heard = approximateHearing({ x: 0, y: 0, z: 0 }, { x: 8, y: 0, z: 0 }, 0.4, () => 0)
+    expect(Math.hypot(heard.x, heard.z)).toBeGreaterThan(1)
+    expect(heard.y).toBe(0)
+  })
+
+  it('blinds on a short beam and only leaves after the beam is held', () => {
+    expect(beamEffect(0.4, 0)).toBe('blind')
+    expect(beamEffect(1.25, 0)).toBe('banish')
+    expect(beamEffect(2, 4)).toBe('none')
+  })
+
+  it('picks walk, run, search and attack clips from the brain state', () => {
+    expect(clipForState('Patrol', 1.4).clip).toBe('Walk')
+    expect(clipForState('Chase', 3.5).clip).toBe('Run')
+    expect(clipForState('Search', 1).clip).toBe('Search')
+    expect(clipForState('Attack', 0.8).clip).toBe('Attack')
+    expect(clipForState('Idle', 0).clip).toBe('Idle')
   })
 })

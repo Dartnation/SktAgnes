@@ -44,6 +44,10 @@ export interface SenseInput {
   aggression: number
   rng: () => number
   waypoints: Vec3[]
+  /** The monster saw the player enter this spot, or heard a noise there. */
+  knowsHide: boolean
+  searchSpots: { id: string; pos: Vec3 }[]
+  checkedIds: Set<string>
 }
 
 export interface BrainResult {
@@ -135,6 +139,7 @@ export function stepMonster(bb: MonsterBB, sense: SenseInput): BrainResult {
   if (
     sense.hiding &&
     sense.hideSpot &&
+    sense.knowsHide &&
     (s.state === 'Search' || s.state === 'Suspicious' || s.state === 'Chase' || s.state === 'Investigate')
   ) {
     const d = distXZ(sense.monsterPos, sense.hideSpot)
@@ -223,9 +228,9 @@ export function stepMonster(bb: MonsterBB, sense: SenseInput): BrainResult {
       s.searchLeft -= dt
       if (sense.atGoal) {
         const base = s.lastHeard ?? s.lastSeen ?? sense.monsterPos
-        const ang = sense.rng() * Math.PI * 2
-        const radius = 1.4 + sense.rng() * 1.8
-        s.goal = v3(base.x + Math.cos(ang) * radius, base.y, base.z + Math.sin(ang) * radius)
+        const pick = chooseSearchPoint(base, sense.searchSpots, sense.checkedIds, sense.rng)
+        if (pick.id) sense.checkedIds.add(pick.id)
+        s.goal = pick.pos
       }
       if (s.searchLeft <= 0) enter('ReturnToPatrol', nearestWp() ?? sense.monsterPos)
       break
@@ -233,7 +238,8 @@ export function stepMonster(bb: MonsterBB, sense: SenseInput): BrainResult {
       if (!see && (sense.atGoal && s.stateTime > 2.2 || s.stateTime > 8)) enter('Search', s.goal ?? sense.monsterPos)
       break
     case 'Chase':
-      s.goal = { ...sense.playerPos }
+      if (see) s.goal = { ...sense.playerPos }
+      else if (s.lastSeen) s.goal = { ...s.lastSeen }
       if (!see && s.unseenTime > 0.55) enter('LostPlayer', s.lastSeen ? { ...s.lastSeen } : { ...sense.playerPos })
       break
     case 'Attack':

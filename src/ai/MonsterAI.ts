@@ -2,7 +2,8 @@ import * as THREE from 'three'
 import { angDiff, forwardFromYaw, type Vec3 } from '../core/math'
 import { findPath, type NavGrid, type PathQuery } from './Pathfinding'
 import { createMonsterBB, stepMonster, type MonsterBB, type MonsterStateName } from './MonsterBrain'
-import { beamHits, canHear, inVisionCone, noiseLoudness, type NoiseKind } from './senses'
+import { beamEffect, clipForState } from './MonsterAnim'
+import { approximateHearing, beamHits, canHear, hearingScale, inVisionCone, noiseLoudness, type NoiseKind } from './senses'
 import { resolveMovement, type AABB } from '../physics/Collision'
 import type { DoorInst } from '../world/buildWorld'
 
@@ -33,6 +34,7 @@ export interface MonsterHooks {
   requestOpen: (id: string) => void
   doorLocked: (id: string) => boolean
   noises: { kind: NoiseKind; pos: Vec3; floorDelta: number; occluded: boolean }[]
+  searchSpots: { id: string; pos: Vec3 }[]
 }
 
 export class MonsterActor {
@@ -67,6 +69,8 @@ export class MonsterActor {
   private glide = 0
   private watch = 0
   private lookAt = 0
+  private beamTime = 0
+  private beamImmune = 0
   /** Beam is on the body: mesh, shadow and attacks are off until it relocates. */
   concealed = false
 
@@ -269,8 +273,10 @@ export class MonsterActor {
     let hear: { pos: Vec3; loudness: number } | null = null
     for (const n of h.noises) {
       if (!canHear(eye, n.pos, n.kind, n.floorDelta, n.occluded)) continue
-      const loudness = noiseLoudness(n.kind) * (n.occluded ? 0.7 : 1)
-      if (!hear || loudness > hear.loudness) hear = { pos: n.pos, loudness }
+      const loudness = noiseLoudness(n.kind) * hearingScale(n.floorDelta, n.occluded)
+      if (!hear || loudness > hear.loudness) {
+        hear = { pos: approximateHearing(n.pos, eye, loudness, Math.random), loudness }
+      }
     }
     const dist = Math.hypot(h.playerPos.x - this.pos.x, h.playerPos.z - this.pos.z)
     const dark = !h.flashlightOn
@@ -278,8 +284,13 @@ export class MonsterActor {
     const canSee =
       !h.hiding &&
       inVisionCone(eye, fwd, h.playerEye, COS, range, h.blockers)
-    const flash = beamHits(h.camPos, h.camDir, { x: this.pos.x, y: this.pos.y + 1.75, z: this.pos.z }, Math.cos(0.5), 16, h.blockers)
-    if (h.flashlightOn && flash) this.concealed = true
+    const flash = h.flashlightOn && beamHits(h.camPos, h.camDir, { x: this.pos.x, y: this.pos.y + 1.75, z: this.pos.z }, Math.cos(0.5), 16, h.blockers)
+    this.beamImmune = Math.max(0, this.beamImmune - h.dt)
+    if (flash && this.beamImmune <= 0) this.beamTime += h.dt
+    else this.beamTime = Math.max(0, this.beamTime - h.dt * 1.5)
+    const spot = h.hideSpot
+    const nearSpot = (p: Vec3 | null, limit: number) => !!spot && !!p && Math.hypot(p.x - spot.x, p.z - spot.z) < limit
+    const knowsHide = nearSpot(this.bb.lastSeen, 2.4) || nearSpot(this.bb.lastHeard, 3.2) || nearSpot(hear?.pos ?? null, 3.2)
     this.lookAt = angDiff(this.yaw, Math.atan2(h.playerPos.x - this.pos.x, h.playerPos.z - this.pos.z))
     const goal = this.bb.goal
     const atGoal = !!goal && Math.hypot(goal.x - this.pos.x, goal.z - this.pos.z) < 0.75
@@ -299,8 +310,24 @@ export class MonsterActor {
       aggression: h.aggression,
       rng: Math.random,
       waypoints: h.waypoints,
+      knowsHide,
+      searchSpots: h.searchSpots,
+      checkedIds: this.checked,
     })
     this.bb = result.bb
+    const light = beamEffect(this.beamTime, this.beamImmune)
+    if (light === 'blind' || light === 'banish') {
+      this.bb.blindTime = Math.max(this.bb.blindTime, 1.2)
+      if (this.bb.state === 'Chase' || this.bb.state === 'Attack') {
+        this.bb.state = 'LostPlayer'
+        this.bb.goal = this.bb.lastSeen ? { ...this.bb.lastSeen } : { ...this.pos }
+      }
+    }
+    if (light === 'banish') {
+      this.concealed = true
+      this.beamTime = 0
+      this.beamImmune = 12
+    }
     if (this.concealed) {
       this.group.visible = false
       this.glide = 0
@@ -419,11 +446,13 @@ export class MonsterActor {
   }
 
   private animate(dt: number, speed: number): void {
-    const chasing = this.bb.state === 'Chase' || this.bb.state === 'Attack'
-    const moving = speed > 0.2
-    this.phase += dt * (moving ? 1.7 + Math.min(speed, 4) * 0.7 : 0.45)
-    const s = moving ? Math.sin(this.phase) : 0
-    const step = chasing ? 0.62 : 0.48
+    const pose = clipForState(this.bb.state, speed)
+    const chasing = pose.clip === 'Run' || pose.clip === 'Attack'
+    const searching = pose.clip === 'Search'
+    const moving = pose.clip === 'Walk' || pose.clip === 'Run'
+    this.phase += dt * (moving ? (1.7 + Math.min(speed, 4) * 0.7) * pose.timeScale : 0.45)
+    const s = moving ? Math.sin(this.phase) : searching ? Math.sin(this.phase * 0.6) * 0.25 : 0
+    const step = pose.clip === 'Run' ? 0.62 : 0.48
     if (this.thighL && this.shinL && this.footL) this.poseLeg(this.thighL, this.shinL, this.footL, s, step)
     if (this.thighR && this.shinR && this.footR) this.poseLeg(this.thighR, this.shinR, this.footR, -s, step)
     if (this.armL && this.foreL) this.poseArm(this.armL, this.foreL, -s, chasing, -1)
