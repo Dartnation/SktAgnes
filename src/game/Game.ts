@@ -206,19 +206,14 @@ export class Game {
     this.scene.add(this.shadowMesh)
     this.butcher = this.buildButcher()
     this.scene.add(this.butcher)
+    // V3: a distant featureless shadow instead of a bright cartoon head.
     this.peek = new THREE.Group()
-    const peekHead = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 18, 12),
-      new THREE.MeshStandardMaterial({ color: '#e6ddd2', roughness: 0.55 }),
+    const peekShadow = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.13, 0.26, 3, 8),
+      new THREE.MeshStandardMaterial({ color: '#111215', roughness: 1 }),
     )
-    peekHead.scale.set(0.86, 1.25, 0.5)
-    const smile = new THREE.Mesh(
-      new THREE.TorusGeometry(0.07, 0.006, 6, 16, Math.PI),
-      new THREE.MeshStandardMaterial({ color: '#2a1814' }),
-    )
-    smile.position.set(0, -0.04, 0.08)
-    smile.rotation.z = Math.PI
-    this.peek.add(peekHead, smile)
+    peekShadow.position.y = -0.05
+    this.peek.add(peekShadow)
     this.peek.visible = false
     this.scene.add(this.peek)
     this.spawnCells = this.world.nav.nodes
@@ -945,7 +940,7 @@ export class Game {
     u.uChroma.value = 0.08 + this.scares.fx.chroma * 0.05
     u.uTime.value = t
     u.uLow.value = this.sim.health < 40 ? (40 - this.sim.health) / 40 : 0
-    u.uFlash.value = Math.max(this.flash, this.atmo.lightning * 0.35)
+    u.uFlash.value = 0 // V3: no sudden white screen flashes
     u.uBlur.value.set(this.camDir.x * blur, this.camDir.y * blur)
     if (this.mode === 'playing' && this.blackout <= 0) this.fade = Math.max(0, this.fade - dt * 0.45)
     this.trauma = Math.max(0, this.trauma - dt)
