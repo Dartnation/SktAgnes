@@ -1,4 +1,4 @@
-import { CATALOG, itemDef, type ItemDef } from './catalog'
+import { CATALOG, type ItemDef } from './catalog'
 
 export interface InvSlot {
   itemId: string
@@ -18,7 +18,8 @@ export function hasItem(slots: InvSlot[], itemId: string): boolean {
 }
 
 export function addItem(slots: InvSlot[], itemId: string, count = 1): { slots: InvSlot[]; added: number } {
-  const def = itemDef(itemId)
+  const def = CATALOG[itemId]
+  if (!def || !Number.isFinite(count) || count <= 0) return { slots, added: 0 }
   const next = cloneInv(slots)
   // `stack` is the most of this item the player can carry, kept in as few slots as possible.
   let left = Math.min(count, Math.max(0, def.stack - countItem(next, itemId)))

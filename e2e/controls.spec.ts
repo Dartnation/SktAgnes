@@ -4,6 +4,7 @@ test('I, Tab og Escape åbner og lukker inventar og pause', async ({ page }, tes
   await page.goto('/?test=1')
   await page.locator('#btn-new').click()
   await page.waitForFunction(() => window.__AGNES__?.mode() === 'playing')
+  await expect(page.locator('#obj-text')).toHaveText('Læs Majas brev.')
 
   await page.keyboard.press('i')
   await expect(page.locator('#inventory')).toBeVisible()

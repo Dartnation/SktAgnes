@@ -5,11 +5,11 @@ import { createDirector, stepDirector, type DirectorState } from '../ai/HorrorDi
 import { Atmosphere } from '../horror/Atmosphere'
 import { JumpscareEngine } from '../horror/JumpscareEngine'
 import type { ScareKind } from '../horror/ScareLogic'
-import { EYE_STAND, eyeHeight, simulatePlayer, smoothEyeHeight, type SimPlayer } from '../player/PlayerController'
+import { EYE_STAND, eyeHeight, PLAYER_RADIUS, simulatePlayer, smoothEyeHeight, STAND_H, type SimPlayer } from '../player/PlayerController'
 import { applyMouseLook, rightFromYaw, type Vec3 } from '../core/math'
 import { flashlightBanishes, pickRelocate } from '../ai/presence'
 import { emptyScript, stepScript } from '../horror/ScriptedEvents'
-import { lineOfSight, selectInteract, type InteractCandidate } from '../physics/Collision'
+import { lineOfSight, overlapsSolid, selectInteract, type InteractCandidate } from '../physics/Collision'
 import { activeColliders, buildWorld, doorBlocksNav, inZone, patrolPoints, roomAt, sampleFloorY, type World } from '../world/buildWorld'
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
 import { EXIT_DOOR, FLOOR_Y, ZONES } from '../world/data'
@@ -22,6 +22,7 @@ import { itemDef, SAFE_CODE, FILE_IDS } from '../systems/catalog'
 import { browserStorage, latestSave, listSaves, loadGame, saveGame, type StorageLike } from '../systems/SaveSystem'
 import { loadSettings, sanitizeSettings, saveSettings, type Settings } from '../systems/Settings'
 import {
+  SPAWN,
   createNewGame,
   currentObjective,
   fileCount,
@@ -651,6 +652,7 @@ export class Game {
   }
 
   private take(id: string): void {
+    if (this.snap.pickedUp.includes(id)) return
     const found = this.world.pickups.find((p) => p.id === id) || this.runtime.find((p) => p.id === id)
     if (!found) return
     const res = addItem(this.snap.inventory, found.itemId, 1)
@@ -1215,6 +1217,8 @@ export class Game {
       this.desired.set(id, 1)
     }
     this.hiding = null
+    if (!this.snap.readIds) this.snap.readIds = []
+    this.settleLoadedBody()
     for (const [id, mesh] of this.built.pickups) mesh.visible = !snap.pickedUp.includes(id)
     if (!snap.events) snap.events = emptyScript()
     this.monster.spawn(snap.monster, snap.monster.yaw, snap.monster.state)
@@ -1232,6 +1236,26 @@ export class Game {
     this.audio.beginScene()
     this.setMode('playing')
     this.audio.ensure()
+  }
+
+  private settleLoadedBody(): void {
+    const floor = sampleFloorY(this.world, this.sim.x, this.sim.z, this.sim.y)
+    const stuck = floor !== null && overlapsSolid(
+      this.sim.x,
+      floor,
+      this.sim.z,
+      PLAYER_RADIUS,
+      STAND_H,
+      this.sim.crouching,
+      activeColliders(this.world, this.unlocked, this.open),
+    )
+    if (floor === null || stuck) {
+      this.sim.x = SPAWN.x
+      this.sim.y = SPAWN.y
+      this.sim.z = SPAWN.z
+      return
+    }
+    this.sim.y = floor
   }
 
   private persist(slot: number): void {
@@ -1311,6 +1335,10 @@ export class Game {
   }
 
   private openExamine(itemId: string): void {
+    if (!this.snap.readIds.includes(itemId)) {
+      this.snap.readIds.push(itemId)
+      this.refreshObjective()
+    }
     const def = itemDef(itemId)
     let map = ''
     if (itemId === 'blueprint') {

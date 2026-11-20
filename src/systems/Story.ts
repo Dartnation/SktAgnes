@@ -2,6 +2,7 @@ import type { MonsterStateName } from '../ai/MonsterBrain'
 import { emptyScript, type ScriptState } from '../horror/ScriptedEvents'
 import { FILE_IDS, itemDef } from './catalog'
 import { hasItem, type InvSlot } from './Inventory'
+import { currentMission, missionProgress, type ObjectiveView } from './missions'
 
 export interface PlayerState {
   x: number
@@ -50,6 +51,8 @@ export interface GameSnapshot {
   rosaryCharges: number
   iFrame: number
   events: ScriptState
+  /** Documents the player has actually opened. Old saves migrate this in. */
+  readIds: string[]
 }
 
 export const SPAWN = { x: 6, y: 0, z: 6, yaw: Math.PI / 2 }
@@ -99,14 +102,11 @@ export function createNewGame(): GameSnapshot {
     rosaryCharges: 2,
     iFrame: 0,
     events: emptyScript(),
+    readIds: [],
   }
 }
 
-export interface ObjectiveView {
-  id: string
-  text: string
-  done: boolean
-}
+export type { ObjectiveView }
 
 export function fileCount(snap: GameSnapshot): number {
   return FILE_IDS.reduce((n, id) => n + (hasItem(snap.inventory, id) ? 1 : 0), 0)
@@ -127,21 +127,17 @@ export function missingKeyNames(snap: GameSnapshot): string[] {
 }
 
 export function objectives(snap: GameSnapshot): ObjectiveView[] {
-  const n = keysFound(snap)
   return [
-    { id: 'keys', text: `Find de tre nøgler (${n}/3)`, done: n >= 3 },
-    { id: 'leave', text: 'Åbn UD TIL STILHEDEN', done: false },
+    currentMission(snap),
   ]
 }
 
 export function currentObjective(snap: GameSnapshot): ObjectiveView {
-  return objectives(snap).find((o) => !o.done) ?? objectives(snap)[0]
+  return currentMission(snap)
 }
 
 export function storyProgress(snap: GameSnapshot): number {
-  const list = objectives(snap).filter((o) => o.id !== 'leave')
-  const done = list.filter((o) => o.done).length
-  return done / list.length
+  return missionProgress(snap)
 }
 
 export type EndingId = 'vidnet' | 'sandheden' | 'tom_port' | 'flugten' | 'optagelsen'
