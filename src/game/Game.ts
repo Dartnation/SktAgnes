@@ -153,11 +153,12 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.setClearColor(0x07060a)
     this.scene.background = new THREE.Color(0x07060a)
-    this.scene.fog = new THREE.FogExp2(0x0c0b10, 0.024)
-    this.scene.add(new THREE.AmbientLight(0x2a2428, 0.11))
-    const hemi = new THREE.HemisphereLight(0x314058, 0x120e0c, 0.38)
+    this.scene.fog = new THREE.FogExp2(0x0a0b0f, 0.028)
+    // Keep a trace of moonlight for orientation, but darkness must matter.
+    this.scene.add(new THREE.AmbientLight(0x20262d, 0.028))
+    const hemi = new THREE.HemisphereLight(0x243343, 0x0d0c0b, 0.075)
     this.scene.add(hemi)
-    const moon = new THREE.DirectionalLight(0xb9c4d6, 0.12)
+    const moon = new THREE.DirectionalLight(0x899baa, 0.018)
     moon.position.set(-20, 40, -10)
     this.scene.add(moon)
 
@@ -167,7 +168,7 @@ export class Game {
     this.scene.add(this.monster.group)
     this.atmo = new Atmosphere(this.scene, 24)
     this.scene.add(this.camera)
-    this.spot = new THREE.SpotLight('#fff1d4', 0, 18, 0.5, 0.65, 1.15)
+    this.spot = new THREE.SpotLight('#f5ead7', 0, 21, 0.49, 0.57, 1.15)
     this.spot.castShadow = this.settings.quality !== 'low'
     this.spot.shadow.mapSize.set(this.settings.quality === 'high' ? 1024 : 512, this.settings.quality === 'high' ? 1024 : 512)
     this.spot.shadow.bias = -0.00025
@@ -859,7 +860,7 @@ export class Game {
     const flicker = on && band === 'critical' && Math.sin(t * 18) > 0.55 ? 0.45 : 1
     const dim = band === 'low' ? 0.72 : band === 'critical' ? 0.5 : 1
     const charge = Math.max(0.2, this.sim.battery / 100)
-    this.spot.intensity = on ? 58 * charge * dim * flicker : 0
+    this.spot.intensity = on ? 53 * charge * dim * flicker : 0
     const lamp = this.viewmodel.position
     this.spot.position.set(lamp.x, lamp.y + 0.02, lamp.z - 0.2)
     this.spot.target.position.set(lamp.x, lamp.y + 0.02, -12)
@@ -891,7 +892,7 @@ export class Game {
     }
     const u = this.post.uniforms
     const blur = this.settings.motionBlur ? Math.min(0.02, Math.hypot(this.sim.vx, this.sim.vz) * 0.002) : 0
-    u.uExposure.value = 1.05 * this.settings.brightness
+    u.uExposure.value = 0.87 * this.settings.brightness
     u.uDamage.value = this.damage
     u.uFade.value = this.fade
     u.uGrain.value = 0
@@ -904,7 +905,7 @@ export class Game {
     this.trauma = Math.max(0, this.trauma - dt)
     this.flash = Math.max(0, this.flash - dt * 1.5)
     const fog = this.scene.fog as THREE.FogExp2
-    fog.density = 0.02 + this.director.tension * 0.00008
+    fog.density = 0.025 + this.director.tension * 0.00007
     this.post.render()
     if (this.subtitleT <= 0 && this.mode === 'playing') this.ui.subtitle('')
   }
@@ -915,10 +916,16 @@ export class Game {
       const cut = this.lightCut.get(entry.def.id) ?? 0
       if (playing && cut > this.snap.playTime) level *= 0.05
       if (entry.def.flicker && level > 0) {
-        const n = 0.8 + 0.2 * Math.abs(Math.sin(t * 7.5 + entry.def.x) * Math.sin(t * 13 + entry.def.z))
-        const dip = Math.sin(t * 0.63 + entry.def.x) > 0.985 ? 0.15 : 1
-        level *= n * dip
+        // Asynchronous low-frequency variation; short faults are independent
+        // for each lamp. Avoid constant high-rate strobing.
+        const seed = entry.def.x * 0.59 + entry.def.z * 0.31
+        const slow = 0.88 + 0.12 * Math.sin(t * 0.57 + seed)
+        const faulty = Math.sin(t * 0.71 + seed) + 0.52 * Math.sin(t * 1.19 + seed * 2.8)
+        const failed = faulty > (entry.def.room === 'reception' ? 0.98 : 1.24)
+        const dip = failed ? 0.17 + 0.18 * (0.5 + 0.5 * Math.sin(t * 3.1 + seed)) : 1
+        level *= Math.max(0.06, slow * dip)
       }
+      if (entry.lens) entry.lens.emissiveIntensity = Math.max(0.012, level * 1.1)
       if (entry.light instanceof THREE.SpotLight || entry.light instanceof THREE.PointLight) {
         entry.light.intensity = entry.base * level
         entry.light.castShadow = this.settings.quality !== 'low' && entry.def.room === 'hall'
@@ -1288,12 +1295,13 @@ export class Game {
   }
 
   private zoneFor(roomId?: string): string {
+    // Sound-only acoustic palette. No gameplay or navigation effects.
     if (!roomId) return 'hall'
-    if (roomId === 'morgue') return 'slagter'
-    if (roomId === 'chapel' || roomId === 'anteroom') return 'chapel'
-    if (roomId.includes('corr') || roomId === 'westcorr' || roomId === 'eastcorr' || roomId === 'ucorr' || roomId === 'bcorr') return 'corridor'
-    if (roomId === 'r102' || roomId === 'tunnel' || roomId === 'secret' || roomId === 'closet') return 'dark'
-    if (this.sim.y < 2) return 'cellar'
+    if (roomId === 'kapel') return 'chapel'
+    if (roomId === 'slagterum' || roomId === 'obduktion') return 'slagter'
+    if (roomId.startsWith('trappe') || roomId === 'patientgang') return 'corridor'
+    if (roomId === 'observation' || roomId === 'kammer' || roomId === 'stilhed') return 'dark'
+    if (roomId === 'kaeldergang') return 'cellar'
     if (this.sim.y > 6) return 'upper'
     return 'hall'
   }
@@ -1598,12 +1606,26 @@ export class Game {
     eyeL.position.set(-0.06, 0.03, 0.08)
     const eyeR = eyeL.clone()
     eyeR.position.x = 0.065
-    const pupil = new THREE.MeshBasicMaterial({ color: '#ff2418' })
+    const pupil = new THREE.MeshBasicMaterial({ color: '#ac281d' })
     const pL = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), pupil)
     pL.position.set(-0.06, 0.03, 0.1)
     const pR = pL.clone()
     pR.position.x = 0.065
     g.add(face, eyeL, eyeR, pL, pR)
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.17,0.042,0.016),ink)
+    mouth.position.set(0,-0.075,0.097)
+    g.add(mouth)
+    const wound = new THREE.MeshBasicMaterial({color:'#4f1715',depthTest:false})
+    for (let i=0;i<5;i++) {
+      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.009,0.035,4),pale)
+      tooth.position.set((i-2)*0.031,-0.073,0.111)
+      tooth.rotation.z=Math.PI
+      g.add(tooth)
+      const scar = new THREE.Mesh(new THREE.BoxGeometry(0.008,0.06+(i%2)*0.028,0.006),wound)
+      scar.position.set(-0.115+i*0.04,-0.12+i*0.008,0.089)
+      scar.rotation.z=0.3
+      g.add(scar)
+    }
     g.position.set(0, 0, -0.7)
     g.visible = false
     g.renderOrder = 20
@@ -1611,23 +1633,74 @@ export class Game {
   }
 
   private buildButcher(): THREE.Group {
+    // Second apparition: a ruined orderly with an apron and a worn mask.
+    // Visual only — scripted appearances and collision remain unchanged.
     const g = new THREE.Group()
     g.position.set(40, 0, 3)
-    const skin = new THREE.MeshStandardMaterial({ color: '#1a1618', roughness: 0.9 })
-    const pale = new THREE.MeshStandardMaterial({ color: '#d9d0c4', roughness: 0.6 })
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.7, 4, 8), skin)
-    body.position.y = 1.05
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), pale)
-    head.scale.set(0.9, 1.2, 0.55)
-    head.position.y = 1.72
-    g.add(body, head)
-    for (let i = 0; i < 4; i++) {
-      const hook = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.012, 6, 10), new THREE.MeshStandardMaterial({ color: '#5a534c', metalness: 0.7, roughness: 0.4 }))
-      hook.position.set(-1.2 + i * 0.55, 2.35, -0.2)
-      hook.rotation.x = Math.PI / 2
+    const coat = new THREE.MeshStandardMaterial({ color: '#292628', roughness: 0.99, side: THREE.DoubleSide })
+    const cloth = new THREE.MeshStandardMaterial({ color: '#665b4e', roughness: 0.98, side: THREE.DoubleSide })
+    const blood = new THREE.MeshStandardMaterial({ color: '#481919', roughness: 0.87 })
+    const mask = new THREE.MeshStandardMaterial({ color: '#a69e8d', roughness: 0.88 })
+    const iron = new THREE.MeshStandardMaterial({ color: '#66615b', metalness: 0.7, roughness: 0.52 })
+    const skin = new THREE.MeshStandardMaterial({ color: '#5e4d46', roughness: 0.96 })
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.76, 6, 12), coat)
+    body.position.y = 1.11
+    body.castShadow = true
+    g.add(body)
+    for (const side of [-1,1]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.105,0.84,8),coat)
+      leg.position.set(side*0.14,0.44,0)
+      g.add(leg)
+      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.16,0.39),coat)
+      boot.position.set(side*0.14,0.08,0.095)
+      g.add(boot)
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.085,0.065,0.81,8),coat)
+      arm.position.set(side*0.38,1.18,0.02)
+      arm.rotation.z=side*0.18
+      g.add(arm)
+      const glove = new THREE.Mesh(new THREE.SphereGeometry(0.09,10,8),skin)
+      glove.position.set(side*0.46,0.76,0.04)
+      g.add(glove)
+    }
+    const apron = new THREE.Mesh(new THREE.PlaneGeometry(0.52,0.95),cloth)
+    apron.position.set(0,1.0,0.29)
+    apron.rotation.z=0.045
+    g.add(apron)
+    for (let i=0; i<5; i++) {
+      const stain = new THREE.Mesh(new THREE.BoxGeometry(0.045,0.22+(i%3)*0.06,0.01),blood)
+      stain.position.set((i-2)*0.09,1.01-(i%2)*0.16,0.304)
+      stain.rotation.z=(i-2)*0.1
+      g.add(stain)
+    }
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.19,18,14),skin)
+    head.scale.set(0.87,1.14,0.8)
+    head.position.set(0,1.78,0.02)
+    head.castShadow = true
+    g.add(head)
+    const surgicalMask = new THREE.Mesh(new THREE.BoxGeometry(0.30,0.14,0.035),mask)
+    surgicalMask.position.set(0,1.71,0.17)
+    g.add(surgicalMask)
+    const eyes = new THREE.MeshStandardMaterial({color:'#17100e',roughness:0.95})
+    for (const side of [-1,1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.048,10,8),eyes)
+      eye.position.set(side*0.08,1.845,0.165)
+      eye.scale.set(1.1,0.48,0.65)
+      g.add(eye)
+      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.034,0.72,0.032),cloth)
+      strap.position.set(side*0.235,1.26,0.29)
+      g.add(strap)
+    }
+    const cleaver = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.42,0.018),iron)
+    cleaver.position.set(0.48,0.52,0.17)
+    cleaver.rotation.z=-0.2
+    g.add(cleaver)
+    for (let i=0;i<4;i++) {
+      const hook = new THREE.Mesh(new THREE.TorusGeometry(0.07,0.013,6,12,Math.PI*1.65),iron)
+      hook.position.set(-1.18+i*0.72,2.4,-0.25)
+      hook.rotation.x=Math.PI/2
       g.add(hook)
     }
-    g.visible = false
+    g.visible=false
     return g
   }
 

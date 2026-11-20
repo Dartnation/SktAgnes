@@ -28,6 +28,11 @@ type Kind =
   | 'metallic'
   | 'shadow'
   | 'deep'
+  | 'lampBuzz'
+  | 'pipeKnock'
+  | 'distantBell'
+  | 'waterDrop'
+  | 'airRumble'
 
 interface PlayReq {
   kind: Kind
@@ -42,6 +47,7 @@ const SCARE: ReadonlySet<string> = new Set(['scream', 'shadow', 'deep', 'metalli
 const SYNTHETIC_KINDS: Kind[] = [
   'door', 'doorSlam', 'locked', 'pickup', 'click', 'fail', 'whisper', 'growl',
   'sting', 'key', 'generator', 'creak', 'thunder', 'paper', 'heartbeat', 'breath',
+  'lampBuzz', 'pipeKnock', 'distantBell', 'waterDrop', 'airRumble',
 ]
 const RECORDED_KIND: Partial<Record<Kind, ClipKey>> = {
   step: 'step',
@@ -82,6 +88,13 @@ export class AudioEngine {
   private breathLevel = 0
   private nextHeartbeat = 0
   private nextBreath = 0
+  private envZone = 'hall'
+  private envSequence = 0
+  private nextEnvironmentalCue = 0
+  private nextElectricalCue = 0
+  private humActive = false
+  private humPosition: Vec3 = {x:0,y:0,z:0}
+  private tension = 0
   private listenPos: Vec3 = { x: 0, y: 0, z: 0 }
   private listenRight: { x: number; z: number } = { x: -1, z: 0 }
   private moving = false
@@ -324,10 +337,9 @@ export class AudioEngine {
     this.listenRight = { x: -forward.z / fl, z: forward.x / fl }
   }
 
-  /** Kept so the director can call in. No generated drone. */
+  /** Environmental beds respond softly to scene tension, without extra footsteps. */
   setTension(tension: number, chasing: boolean): void {
-    void tension
-    void chasing
+    this.tension = clampVolume(tension + (chasing ? 0.25 : 0))
   }
 
   setHeartbeat(level: number): void { this.heartbeatLevel = clampVolume(level) }
@@ -335,8 +347,8 @@ export class AudioEngine {
   setBreath(level: number): void { this.breathLevel = clampVolume(level) }
 
   setHum(on: boolean, pos: Vec3): void {
-    void on
-    void pos
+    this.humActive = on
+    this.humPosition = pos
   }
 
   setRadio(on: boolean, pos: Vec3): void {
@@ -345,7 +357,9 @@ export class AudioEngine {
   }
 
   setZone(zone: string): void {
-    void zone
+    if (zone === this.envZone) return
+    this.envZone = zone
+    this.nextEnvironmentalCue = (this.ctx?.currentTime ?? 0) + 3.2
   }
 
   update(_dt: number): void {
@@ -361,6 +375,29 @@ export class AudioEngine {
       const breath = this.buffers.get('cue:breath')
       if (breath) this.fire(breath, this.sfxGain, this.breathLevel * 0.25, 1, undefined, false)
       this.nextBreath = t + 3.2
+    }
+    // Rare low-frequency ambience is less tiring than constant rattling. Only
+    // environmental audio is generated here; no player/phantom footsteps.
+    if (t >= this.nextEnvironmentalCue) {
+      const seq = this.envSequence++
+      const zoneKinds: Record<string, Kind[]> = {
+        hall: ['airRumble','pipeKnock','waterDrop'],
+        corridor: ['airRumble','pipeKnock','waterDrop'],
+        cellar: ['pipeKnock','waterDrop','airRumble'],
+        chapel: ['distantBell','airRumble','pipeKnock'],
+        upper: ['airRumble','distantBell','waterDrop'],
+        dark: ['pipeKnock','airRumble','distantBell'],
+        slagter: ['pipeKnock','airRumble','waterDrop'],
+      }
+      const options = zoneKinds[this.envZone] ?? zoneKinds.hall
+      const kind = options[seq % options.length]
+      this.play(kind, undefined, { volume: 0.18 + this.tension * 0.12 })
+      this.nextEnvironmentalCue = t + 9.5 + (seq * 7 % 8) - this.tension * 2
+    }
+    if (this.humActive && t >= this.nextElectricalCue) {
+      const buf = this.buffers.get('cue:lampBuzz')
+      if (buf) this.fire(buf, this.sfxGain, 0.065, 0.94 + 0.1*Math.sin(t), this.humPosition, false)
+      this.nextElectricalCue = t + 5.0 + (this.envSequence * 3 % 5)
     }
   }
 
@@ -674,6 +711,9 @@ function cueBuffer(ctx: AudioContext, kind: Kind): AudioBuffer {
     generator: [1.1,54,85], creak: [0.75,130,68],
     thunder: [1.6,74,25], paper: [0.2,270,190],
     heartbeat: [0.3,58,42], breath: [1.25,185,120],
+    lampBuzz: [0.54,80,97], pipeKnock: [0.72,110,48],
+    distantBell: [2.2,185,169], waterDrop: [0.21,600,210],
+    airRumble: [2.8,49,63],
   }
   const [duration, startHz, endHz] = specs[kind] ?? [0.1,180,180]
   const sr = ctx.sampleRate

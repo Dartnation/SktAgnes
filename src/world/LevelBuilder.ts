@@ -4,12 +4,13 @@ import { hashString } from '../core/math'
 import { FLOOR_Y, WALL_H, type RoomDef } from './data'
 import type { DoorInst, LightDef, World } from './buildWorld'
 import { createMaterials, type Materials } from './textures'
+import { addHospitalSetDressing } from './SetDressing'
 
 export interface BuiltWorld {
   materials: Materials
   doors: Map<string, THREE.Group>
   pickups: Map<string, THREE.Object3D>
-  lights: { def: LightDef; light: THREE.Light; base: number }[]
+  lights: { def: LightDef; light: THREE.Light; base: number; lens?: THREE.MeshStandardMaterial }[]
   mannequin: THREE.Object3D
   pot: THREE.Object3D
   secretShelf: THREE.Object3D
@@ -37,6 +38,7 @@ const WALL_MAT: Record<RoomDef['wallMat'], keyof Materials> = {
 
 export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
   const materials = createMaterials()
+  const disposeDressing = addHospitalSetDressing(scene, world.rooms)
   const buckets = new Map<string, THREE.BufferGeometry[]>()
   const push = (key: string, geo: THREE.BufferGeometry) => {
     const list = buckets.get(key) ?? []
@@ -263,11 +265,41 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     const panel = new THREE.Mesh(new THREE.BoxGeometry(door.width * 0.96, 2.42, 0.12), doorMat)
     panel.castShadow = true
     panel.receiveShadow = true
-    // Hinge at the low end of the hole. Local +X runs along the opening when closed.
+    // The hinges stay in the original place; inset panels only decorate the leaf.
     panel.position.set(door.width * 0.48, 1.21, 0)
-    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), materials.metal)
-    knob.position.set(door.width * 0.78, 1.1, 0.07)
-    pivot.add(panel, knob)
+    const inset = new THREE.MeshStandardMaterial({ color: '#1c2425', roughness: 0.96 })
+    const brass = new THREE.MeshStandardMaterial({ color: '#554d3c', roughness: 0.53, metalness: 0.67 })
+    const leafInset = door.width * 0.76
+    for (const side of [-1, 1]) {
+      for (const yy of [-0.56, 0.51]) {
+        const backplate = new THREE.Mesh(new THREE.BoxGeometry(leafInset, 0.84, 0.012), inset)
+        backplate.position.set(0, yy, side * 0.066)
+        panel.add(backplate)
+        // Four raised rails around every pressed steel/wood recess.
+        for (const ry of [-0.39, 0.39]) {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(leafInset, 0.034, 0.025), doorMat)
+          rail.position.set(0, yy + ry, side * 0.084)
+          panel.add(rail)
+        }
+        for (const rx of [-1, 1]) {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.79, 0.025), doorMat)
+          rail.position.set(rx * leafInset * 0.48, yy, side * 0.084)
+          panel.add(rail)
+        }
+      }
+    }
+    const brassPlate = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.26, 0.015), brass)
+    brassPlate.position.set(door.width * 0.29, -0.09, 0.09)
+    panel.add(brassPlate)
+    for (const sign of [-1, 1]) {
+      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.043, 12, 10), brass)
+      knob.position.set(door.width * 0.29, -0.09, sign * 0.13)
+      panel.add(knob)
+    }
+    const kickPlate = new THREE.Mesh(new THREE.BoxGeometry(leafInset, 0.18, 0.017), brass)
+    kickPlate.position.set(0, -1.04, 0.073)
+    panel.add(kickPlate)
+    pivot.add(panel)
     const y = FLOOR_Y[door.floor]
     if (door.axis === 'x') {
       // Wall is constant X, hole runs +Z. -PI/2 turns local +X onto +Z.
@@ -313,23 +345,34 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
       scene.add(pt)
       light = pt
     }
-    const shade = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.22, 0.28, 0.12, 12),
-      new THREE.MeshStandardMaterial({ color: '#2a2622', roughness: 0.6, metalness: 0.2 }),
-    )
-    shade.position.set(def.x, def.y - 0.02, def.z)
-    const bulb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.06, 10, 8),
-      new THREE.MeshStandardMaterial({
-        color: def.color,
-        emissive: def.color,
-        emissiveIntensity: 0.45,
-        roughness: 0.4,
-      }),
-    )
-    bulb.position.set(def.x, def.y - 0.12, def.z)
-    scene.add(shade, bulb)
-    lights.push({ def, light, base: def.intensity })
+
+    // 1980s twin-tube fluorescent fitting: long metal housing, cold diffuser,
+    // end caps and visibly emissive tubes. Light level is driven by tickLights.
+    const fixture = new THREE.Group()
+    fixture.position.set(def.x, def.y + 0.14, def.z)
+    const casing = new THREE.MeshStandardMaterial({color:'#333738',metalness:0.65,roughness:0.81})
+    const diffuser = new THREE.MeshStandardMaterial({
+      color: '#b8bdb6', emissive: def.color, emissiveIntensity: 0.55,
+      roughness: 0.34, metalness: 0.04,
+    })
+    const cover = new THREE.Mesh(new THREE.BoxGeometry(1.42,0.12,0.31),casing)
+    cover.castShadow = true
+    fixture.add(cover)
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(1.27,0.026,0.24),materials.trim)
+    panel.position.y = -0.073
+    fixture.add(panel)
+    for (const z of [-0.075,0.075]) {
+      const tube = new THREE.Mesh(new THREE.BoxGeometry(1.22,0.036,0.066),diffuser)
+      tube.position.set(0,-0.108,z)
+      fixture.add(tube)
+    }
+    for (const x of [-0.64,0.64]) {
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.048,0.045,0.27),casing)
+      cap.position.set(x,-0.105,0)
+      fixture.add(cap)
+    }
+    scene.add(fixture)
+    lights.push({ def, light, base: def.intensity, lens: diffuser })
   }
 
   const rainGeo = new THREE.BufferGeometry()
@@ -359,6 +402,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     detail,
     rain,
     dispose() {
+      disposeDressing()
       materials.dispose()
       for (const g of geos) g.dispose()
       chair.geometry.dispose()
@@ -502,7 +546,37 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
         part(w, 0.05, d, 0, h * 0.75, 0, 'wood'),
       ]
     case 'locker':
-      return [part(w, h, d, 0, 0, 0, 'metal'), part(w * 0.8, 0.04, 0.02, 0, h * 0.55, d / 2, 'trim')]
+      return [
+        part(w, h, d, 0, 0, 0, 'metal'),
+        part(w * 0.92, 0.055, 0.025, 0, h * 0.92, d / 2, 'trim'),
+        part(w * 0.92, 0.055, 0.025, 0, h * 0.14, d / 2, 'trim'),
+        part(0.04, h * 0.76, 0.03, -w * 0.035, h * 0.15, d / 2, 'trim'),
+        part(0.025, 0.16, 0.05, w * 0.27, h * 0.51, d / 2, 'trim'),
+        ...[-0.3, -0.18, -0.06].map(k => part(w * 0.56, 0.021, 0.027, -w * 0.03, h * (0.81 + k), d / 2, 'trim')),
+      ]
+    case 'recordcabinet':
+      return [
+        part(w, h, d, 0, 0, 0, 'wood'),
+        part(w * 1.04, 0.055, d * 1.06, 0, h - 0.04, 0, 'trim'),
+        ...[0.15, 0.41, 0.67].map(t => part(w * 0.92, 0.027, 0.03, 0, h * t, d / 2, 'metal')),
+        ...[-0.3, 0.3].map(x => part(0.035, h * 0.79, 0.03, x * w, h * 0.1, d / 2, 'metal')),
+        ...[0.25, 0.53, 0.79].map(t => part(0.17, 0.04, 0.05, 0, h * t, d / 2, 'metal')),
+      ]
+    case 'filing':
+      return [
+        part(w, h, d, 0, 0, 0, 'metal'),
+        ...[0.1, 0.33, 0.56, 0.79].flatMap(t => [
+          part(w * 0.84, 0.025, 0.028, 0, h * t, d / 2, 'trim'),
+          part(w * 0.3, 0.04, 0.035, 0, h * (t + 0.11), d / 2, 'trim'),
+        ]),
+      ]
+    case 'sideboard':
+      return [
+        part(w, h * 0.72, d, 0, h * 0.24, 0, 'wood'),
+        part(w * 1.08, 0.064, d * 1.06, 0, h * 0.94, 0, 'wood'),
+        ...[-0.22, 0.22].map(x => part(0.065, 0.026, 0.065, x * w, h * 0.57, d * 0.53, 'metal')),
+        ...[-0.36, 0.36].map(x => part(0.09, h * 0.18, 0.1, x * w, 0, d * 0.37, 'wood')),
+      ]
     case 'counter':
       return [part(w, h, d, 0, 0, 0, 'tileWall'), part(w, 0.06, d, 0, h - 0.06, 0, 'metal')]
     case 'pew':
@@ -510,11 +584,46 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
     case 'altar':
       return [part(w, h, d, 0, 0, 0, 'stone'), part(0.08, 0.35, 0.08, -0.3, h, 0, 'trim')]
     case 'sofa':
-      return [part(w, 0.28, d, 0, 0.22, 0, 'fabric'), part(w, 0.4, 0.12, 0, 0.45, -d / 2 + 0.06, 'fabric')]
+      return [
+        part(w, 0.28, d, 0, 0.26, 0, 'fabric'),
+        part(w, 0.5, 0.16, 0, 0.43, -d / 2 + 0.08, 'fabric'),
+        ...[-1, 1].map(k => part(0.18, 0.36, d, k * (w / 2 - 0.09), 0.28, 0, 'fabric')),
+        ...[-0.28, 0.28].map(k => part(w * 0.38, 0.08, d * 0.65, k * w * 0.7, 0.51, 0.06, 'fabric')),
+      ]
+    case 'medicalcart':
+      return [
+        part(w, 0.055, d, 0, h - 0.06, 0, 'metal'),
+        part(w, 0.05, d, 0, 0.34, 0, 'metal'),
+        ...[-1,1].flatMap(x => [-1,1].map(z => part(0.035, h - 0.1, 0.035, x*(w/2-0.06), 0.12, z*(d/2-0.06), 'metal'))),
+        ...[-1,1].flatMap(x => [-1,1].map(z => part(0.11, 0.10, 0.11, x*(w/2-0.09), 0.02, z*(d/2-0.07), 'trim'))),
+        part(w * 0.78, 0.05, d * 0.76, 0, h * 0.62, 0, 'metal'),
+        part(w * 0.52, 0.05, 0.04, 0, h - 0.1, d * 0.58, 'trim'),
+      ]
+    case 'foldscreen':
+      return [
+        ...[-0.33, 0, 0.33].map(k => part(w * 0.31, h * 0.83, 0.038, w * k, 0.2, 0, 'fabric')),
+        ...[-0.49, -0.16, 0.16, 0.49].map(k => part(0.031, h, 0.05, w * k, 0, 0, 'metal')),
+        part(w, 0.04, 0.06, 0, h - 0.06, 0, 'metal'),
+      ]
+    case 'ivstand':
+      return [
+        part(0.045, h, 0.045, 0, 0, 0, 'metal'),
+        part(w, 0.04, 0.045, 0, 0.03, 0, 'metal'),
+        part(0.045, 0.04, d, 0, 0.03, 0, 'metal'),
+        part(0.22, 0.035, 0.04, 0, h - 0.06, 0, 'metal'),
+        part(0.08, 0.22, 0.045, w * 0.25, h - 0.38, 0, 'glass'),
+      ]
     case 'bathtub':
       return [part(w, h, d, 0, 0, 0, 'tileWall')]
     case 'gurney':
-      return [part(w, 0.08, d, 0, 0.7, 0, 'metal'), part(0.06, 0.7, 0.06, -w / 2, 0, -d / 2, 'metal'), part(0.06, 0.7, 0.06, w / 2, 0, d / 2, 'metal')]
+      return [
+        part(w, 0.075, d, 0, 0.7, 0, 'metal'),
+        part(w * 0.93, 0.07, d * 0.84, 0, 0.78, 0, 'fabric'),
+        part(w * 0.21, 0.075, d * 0.66, -w * 0.33, 0.86, 0, 'fabric'),
+        ...[-1,1].flatMap(x => [-1,1].map(z => part(0.045, 0.73, 0.045, x*(w/2-0.08), 0, z*(d/2-0.06), 'metal'))),
+        ...[-1,1].map(z => part(w * 0.91, 0.038, 0.044, 0, 0.45, z * d * 0.51, 'metal')),
+        ...[-1,1].flatMap(x => [-1,1].map(z => part(0.12, 0.12, 0.12, x*(w/2-0.08), 0.01, z*(d/2-0.07), 'trim'))),
+      ]
     case 'cabinet':
     case 'dresser':
       return [part(w, h, d, 0, 0, 0, 'wood')]
@@ -534,7 +643,13 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
         part(w * 0.28, 0.1, d * 0.28, -w * 0.28, 0.58, -d * 0.28, 'fabric'),
       ]
     case 'wheelchair':
-      return [part(0.4, 0.08, 0.4, 0, 0.45, 0, 'metal'), part(0.4, 0.4, 0.06, 0, 0.5, -0.18, 'fabric')]
+      return [
+        part(w * 0.78, 0.075, d * 0.65, 0, 0.48, 0, 'fabric'),
+        part(w * 0.8, 0.5, 0.075, 0, 0.53, -d * 0.37, 'fabric'),
+        ...[-1,1].map(k => part(0.06, 0.32, d * 0.7, k*w*0.48, 0.47, 0, 'metal')),
+        ...[-1,1].map(k => part(0.11, 0.68, 0.12, k*w*0.55, 0.1, 0, 'metal')),
+        part(w * 1.16, 0.04, 0.05, 0, 0.11, d * 0.4, 'metal'),
+      ]
     case 'plant':
       return [part(0.22, 0.28, 0.22, 0, 0, 0, 'trim')]
     case 'beam':

@@ -574,6 +574,13 @@ function buildLights(): LightDef[] {
 }
 
 function lightSpots(r: RoomDef): { x: number; z: number }[] {
+  // The opening reception has three individual ceiling fixtures, not one
+  // room-wide floodlight. Their pools of light leave dark walkable areas.
+  if (r.id === 'reception') return [
+    { x: r.x + 2.25, z: r.z + 3.0 },
+    { x: r.x + 6.05, z: r.z + 6.1 },
+    { x: r.x + 9.2, z: r.z + 9.0 },
+  ]
   if (r.lightAt) return [r.lightAt]
   const long = Math.max(r.w, r.d)
   if (long > 18) {
@@ -600,17 +607,17 @@ function lightSpec(mode: RoomDef['light']): {
 } {
   switch (mode) {
     case 'always-warm':
-      return { color: '#ffb27a', intensity: 36, distance: 16, mode: 'always', flicker: true }
+      return { color: '#f0c49f', intensity: 5.7, distance: 9.5, mode: 'always', flicker: true }
     case 'always-dim':
-      return { color: '#ffc9a4', intensity: 14, distance: 11, mode: 'always', flicker: true }
+      return { color: '#cbbfba', intensity: 3.2, distance: 7.5, mode: 'always', flicker: true }
     case 'always-candle':
-      return { color: '#ff9448', intensity: 16, distance: 12, mode: 'always', flicker: true }
+      return { color: '#ff9d62', intensity: 3.9, distance: 7.0, mode: 'always', flicker: true }
     case 'always-red':
-      return { color: '#ff3b32', intensity: 10, distance: 10, mode: 'always', flicker: true }
+      return { color: '#d4473f', intensity: 3.8, distance: 7.5, mode: 'always', flicker: true }
     case 'secret':
-      return { color: '#ffe0b8', intensity: 18, distance: 11, mode: 'secret', flicker: true }
+      return { color: '#e1c7a6', intensity: 5.0, distance: 8.0, mode: 'secret', flicker: true }
     case 'power':
-      return { color: '#ffd0a6', intensity: 22, distance: 13, mode: 'power', flicker: false }
+      return { color: '#b5c6ce', intensity: 5.1, distance: 9, mode: 'power', flicker: false }
     default:
       return { color: '#ffffff', intensity: 0, distance: 1, mode: 'always', flicker: false }
   }
