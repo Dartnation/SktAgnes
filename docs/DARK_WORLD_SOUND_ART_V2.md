@@ -17,7 +17,7 @@ Dette er en **design- og lydgren**, som skal danne grundlag for Cursors gameplay
 
 **Cursor:** Monsterets adfærd, inventartaster, gåder, lydtriggere, fysik, navigation, verdensinteraktioner, animationer og gemmesystem.
 
-Cursor må ikke ukritisk overskrive \`src/world/SetDressing.ts\`, 3D-modellerne i \`src/ai/MonsterAI.ts\` eller geometri/materialer i \`src/world/LevelBuilder.ts\`. Nødvendige ændringer beskrives i en særskilt PR.
+Cursor må ikke ukritisk overskrive `src/world/SetDressing.ts`, 3D-modellerne i `src/ai/MonsterAI.ts` eller geometri/materialer i `src/world/LevelBuilder.ts`. Nødvendige ændringer beskrives i en særskilt PR.
 
 ## Godkendelse og test
 - Test Receptionen med lommelygten både slukket og tændt: mørke hjørner skal have betydning, men væsentlige ruter skal kunne findes.
@@ -31,15 +31,15 @@ Cursor må ikke ukritisk overskrive \`src/world/SetDressing.ts\`, 3D-modellerne 
 - De nuværende rumaktiver er skabt af Three.js-former og de eksisterende materialer; der er ikke importeret eksterne tredjeparts-3D-modeller i denne gren.
 
 ## Lokal test i PowerShell
-Stop den aktive Vite-server først, og undersøg \`git status\`, hvis der er lokale ændringer:
+Stop den aktive Vite-server først, og undersøg `git status`, hvis der er lokale ændringer:
 
-\`\`\`powershell
+```powershell
 cd "$env:USERPROFILE\Documents\SktAgnes-AudioTest"
 git fetch origin "refs/heads/design/dark-world-props-and-audio-v2:refs/remotes/origin/design/dark-world-props-and-audio-v2"
 git switch --track origin/design/dark-world-props-and-audio-v2
 npm test
 npm run build
 npm run dev
-\`\`\`
+```
 
-**Bemærk:** Hvis den lokale gren allerede findes, bruges almindelig \`git switch\` i stedet for \`--track\`. Hvis port 5173 er optaget, kan spillet startes med \`npx vite --host 127.0.0.1 --port 5174 --strictPort\`. Skift ikke gren hen over ikke-gemte ændringer.
+**Bemærk:** Hvis den lokale gren allerede findes, bruges almindelig `git switch` i stedet for `--track`. Hvis port 5173 er optaget, kan spillet startes med `npx vite --host 127.0.0.1 --port 5174 --strictPort`. Skift ikke gren hen over ikke-gemte ændringer.
