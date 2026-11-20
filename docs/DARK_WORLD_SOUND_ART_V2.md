@@ -5,11 +5,13 @@ This branch is **visual and audio art**. It is intended to feed Cursor's logic w
 ## What changed
 - Darkened global ambient/hemi/moon lighting and the post-exposure; redistributed room lights into smaller pools. The flashlight is now intentionally much more useful.
 - Three separate 1980s fluorescent fittings in the opening **Receptionen**, with deliberately irregular, asynchronous low-rate flicker. Diffuser emission follows the actual individual light level.
-- 36 curated large props in rooms (cabinets, stretchers, gurneys, shelves, screen partitions, carts, pews, chairs, medical equipment) registered through the existing world props/collision pipeline.
+- 37 curated large props in rooms (cabinets, stretchers, gurneys, shelves, screen partitions, carts, pews, chairs, medical equipment) registered through the existing world props/collision pipeline.
 - Hand-built geometry for heavier hospital doors, metal fittings, inset panels, cabinets, filing drawers, wheelchair, hospital trolley and examination furnishings.
 - Noninteractive background room decoration: 1987 plaques, ceiling pipes, paperwork, medical vials, folded cloth and aged stains. These small props have no physical collision by design.
 - Improved appearance for the active stalker, scripted masked orderly, and face close-up, with no AI behavior or state-machine changes.
 - Soft original, procedurally generated environmental audio: distant low rumbles, pipes, drips, bell resonances and fluorescent hum. Sparse events at 7–17 second intervals; **no fake footsteps**.
+
+- Both stair runs are re-centered with approximately 2.1m clearance from each outside wall, while their original climb logic is preserved.
 
 ## Responsibility boundary
 **ChatGPT:** visual assets, lighting appearance/fluorescent art, environmental audio design and procedural sound cues.
