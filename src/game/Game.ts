@@ -383,8 +383,10 @@ export class Game {
         this.stepDist = 0
       }
       this.separateFromMonster(cols)
-    } else if (wish.crouch === false && this.input.pressed('KeyE')) {
-      /* handled above */
+    } else {
+      // Hiding means there is no walking, regardless of the keys still held.
+      this.audio.setLocomotion(false, false, true)
+      this.stepDist = 0
     }
 
     this.placeCamera(wish, dt)
@@ -1252,7 +1254,11 @@ export class Game {
 
   private setMode(mode: Mode): void {
     this.mode = mode
-    if (mode !== 'playing') this.input.unlock()
+    if (mode !== 'playing') {
+      this.input.unlock()
+      this.audio.setLocomotion(false, false, false)
+      this.stepDist = 0
+    }
     this.ui.show(mode === 'playing' ? 'playing' : mode)
     this.audio.duck(mode !== 'playing' && mode !== 'menu')
     if (mode === 'inventory') this.refreshInv()
