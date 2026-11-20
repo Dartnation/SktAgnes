@@ -68,6 +68,7 @@ export class AudioEngine {
   private analyser: AnalyserNode | null = null
   private buffers = new Map<string, AudioBuffer>()
   private slices: AudioBuffer[] = []
+  private activeSteps = new Set<{ source: AudioBufferSourceNode; amp: GainNode }>()
   private bed: AudioBufferSourceNode | null = null
   private bedRunning = false
   private bedBase = 0.4
@@ -210,18 +211,34 @@ export class AudioEngine {
    */
   setLocomotion(moving: boolean, sprint: boolean, crouch: boolean): void {
     this.ensure()
+    void sprint
+    void crouch
     if (!moving) {
-      if (this.moving) {
-        this.moving = false
+      if (this.moving || this.activeSteps.size > 0) {
+        this.stopFootsteps()
         this.mark('step-stop')
       }
+      this.moving = false
       return
     }
     if (!this.moving) {
       this.moving = true
       this.mark('step-start')
-      this.playFootstep(sprint, crouch)
     }
+    // The game emits steps from distance travelled. Never play on key-down.
+  }
+
+  private stopFootsteps(): void {
+    const ctx = this.ctx
+    if (!ctx) return
+    const t = ctx.currentTime
+    for (const step of this.activeSteps) {
+      step.amp.gain.cancelScheduledValues(t)
+      step.amp.gain.setValueAtTime(step.amp.gain.value, t)
+      step.amp.gain.linearRampToValueAtTime(0.0001, t + 0.035)
+      try { step.source.stop(t + 0.045) } catch { /* already stopped */ }
+    }
+    this.activeSteps.clear()
   }
 
   /** One recorded footfall. No loop, no pitch slide. */
@@ -477,9 +494,13 @@ export class AudioEngine {
       pan.connect(bus)
       if (this.trackNext) this.trackedPan = pan
     } else amp.connect(bus)
+    if (bus === this.stepGain) this.activeSteps.add({ source: src, amp })
     src.start(t)
     src.stop(t + dur + 0.03)
     src.onended = () => {
+      for (const item of this.activeSteps) {
+        if (item.source === src) this.activeSteps.delete(item)
+      }
       try {
         src.disconnect()
         amp.disconnect()
