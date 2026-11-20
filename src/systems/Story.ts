@@ -126,6 +126,25 @@ export function missingKeyNames(snap: GameSnapshot): string[] {
   return MISSION_KEYS.filter((k) => !hasItem(snap.inventory, k.id)).map((k) => k.name)
 }
 
+/** Why the yard gate stays shut. Null means the three keys, the power and the safe key are all there. */
+export function gateBlock(snap: GameSnapshot): string | null {
+  const missing = missingKeyNames(snap)
+  if (missing.length) return `UD TIL STILHEDEN er låst. Mangler: ${missing.join(', ')}.`
+  if (!snap.flags.generatorOn) return 'Låsen er død. Generatoren mangler strøm.'
+  if (!snap.flags.safeOpen && !hasItem(snap.inventory, 'master_key')) return 'Kræver hovednøglen fra pengeskabet.'
+  return null
+}
+
+/**
+ * The yard ending only happens in the exit room once the gate is open.
+ * The tunnel is the crawl behind the morgue shelf, and only after it has been forced.
+ */
+export function leaveCause(snap: GameSnapshot, roomId: string, crawl: boolean): 'yard' | 'tunnel' | null {
+  if (crawl && snap.flags.secretOpen && roomId === 'slagterum') return 'tunnel'
+  if (roomId === 'stilhed' && gateBlock(snap) === null) return 'yard'
+  return null
+}
+
 export function objectives(snap: GameSnapshot): ObjectiveView[] {
   return [
     currentMission(snap),

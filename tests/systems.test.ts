@@ -5,7 +5,7 @@ import { overlapsSolid } from '../src/physics/Collision'
 import { addItem, countItem, dropOne, hasItem, removeItem, useConsumable } from '../src/systems/Inventory'
 import { latestSave, loadGame, memoryStorage, migrateSnapshot, saveGame } from '../src/systems/SaveSystem'
 import { loadSettings, sanitizeSettings } from '../src/systems/Settings'
-import { createNewGame, currentObjective, resolveEnding, storyProgress } from '../src/systems/Story'
+import { createNewGame, currentObjective, gateBlock, leaveCause, resolveEnding, storyProgress } from '../src/systems/Story'
 
 describe('inventory', () => {
   it('stacks batteries, refuses a second unique key, and uses a medkit', () => {
@@ -241,6 +241,30 @@ describe('story', () => {
       snap.inventory = addItem(snap.inventory, id).slots
     }
     expect(resolveEnding(snap, 'yard')).toBe('vidnet')
+  })
+
+  it('keeps the yard shut until power and the safe key join the three keys', () => {
+    const snap = createNewGame()
+    snap.inventory = addItem(snap.inventory, 'key_op').slots
+    snap.inventory = addItem(snap.inventory, 'key_arkiv').slots
+    snap.inventory = addItem(snap.inventory, 'key_kapel').slots
+    expect(gateBlock(snap)).toMatch(/strøm/i)
+    expect(leaveCause(snap, 'stilhed', false)).toBeNull()
+    snap.flags.generatorOn = true
+    expect(gateBlock(snap)).toMatch(/pengeskab/i)
+    snap.flags.safeOpen = true
+    expect(gateBlock(snap)).toBeNull()
+    expect(leaveCause(snap, 'stilhed', false)).toBe('yard')
+    expect(leaveCause(snap, 'kammer', false)).toBeNull()
+  })
+
+  it('opens the tunnel only after the morgue shelf has been forced', () => {
+    const snap = createNewGame()
+    expect(leaveCause(snap, 'slagterum', true)).toBeNull()
+    snap.flags.secretOpen = true
+    expect(leaveCause(snap, 'reception', true)).toBeNull()
+    expect(leaveCause(snap, 'slagterum', true)).toBe('tunnel')
+    expect(resolveEnding(snap, 'tunnel')).toBe('flugten')
   })
 
   it('treats a body inside a wall as stuck', () => {
