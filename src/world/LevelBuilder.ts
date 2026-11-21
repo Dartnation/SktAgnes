@@ -6,6 +6,7 @@ import type { DoorInst, LightDef, World } from './buildWorld'
 import { createMaterials, type Materials } from './textures'
 import { addHospitalSetDressing } from './SetDressing'
 import { addVisualV3 } from './VisualV3'
+import { addCinematicArtV3 } from './CinematicArtV3'
 
 export interface BuiltWorld {
   materials: Materials
@@ -41,6 +42,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
   const materials = createMaterials()
   const disposeDressing = addHospitalSetDressing(scene, world.rooms)
   const disposeVisualV3 = addVisualV3(scene, world.rooms)
+  const disposeCinematicArtV3 = addCinematicArtV3(scene, world.rooms, world.props)
   const buckets = new Map<string, THREE.BufferGeometry[]>()
   const push = (key: string, geo: THREE.BufferGeometry) => {
     const list = buckets.get(key) ?? []
@@ -136,9 +138,10 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     }
   }
 
-  // Solid treads and risers instead of floating 12cm plates. A full-size
-  // landing stays clear of the Personnel Room door between the two flights.
-  // The player still glides smoothly on the matching collision ramp.
+  // Open, suspended stair construction rather than full-height concrete blocks.
+  // The previous stair geometry filled every step down to the floor, producing
+  // the giant solid wedge shown in the user's screenshot. The ramp and floor
+  // cutouts continue to use the shared StairDef geometry.
   for (const stair of world.stairs) {
     const steps = 14
     const y0 = FLOOR_Y[stair.fromFloor]
@@ -146,31 +149,49 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     if (stair.axis !== 'z') continue
     const rise = y1 - y0
     const depth = stair.d / steps
-    const x0 = stair.x + 0.15
-    const width = stair.w - 0.3
+    const x0 = stair.x + 0.18
+    const width = stair.w - 0.36
     for (let i = 0; i < steps; i++) {
       const t1 = (i + 1) / steps
       const top = y0 + t1 * rise
       const z = stair.z + i * depth
-      // Each concrete riser supports the next tread down to the flight base.
-      // A hair of overlap avoids visible cracks on the GPU.
-      push('stairs|concrete', slab(x0, y0, z, width, top - y0, depth * 1.005))
+      // Each tread is a thin slab: the space underneath stays truly open.
+      const treadThickness = 0.15
+      push('stairs|concrete', slab(x0, top - treadThickness, z, width, treadThickness, depth * 1.005))
+      // Short riser only between neighbouring step surfaces, never to ground.
+      if (i > 0) {
+        const prevTop = y0 + (i / steps) * rise
+        push('stairs|concrete', slab(x0 + 0.015, prevTop - 0.04, z, width - 0.03, top - prevTop + 0.04, 0.065))
+      }
       // Thin dark edge makes each tread legible from above.
-      push('stairs|trim', slab(x0, top - 0.025, z + depth * 0.85, width, 0.026, depth * 0.13))
+      push('stairs|trim', slab(x0 + 0.035, top - 0.020, z + depth * 0.85, width - 0.07, 0.026, depth * 0.13))
+      // Narrow worn non-slip inlay, following each real tread.
+      push('stairs|metal', slab(x0 + 0.12, top - 0.008, z + depth * 0.68, width - 0.24, 0.009, depth * 0.045))
+    }
+
+    // Two structural stringers under the treads: believable support without a
+    // blank concrete wall covering the whole flight.
+    const stringerSlope = -Math.atan2(rise, stair.d)
+    const stringerRun = Math.hypot(stair.d, rise)
+    for (const sx of [x0 + 0.13, x0 + width - 0.13]) {
+      const beam = new THREE.BoxGeometry(0.13, 0.25, stringerRun)
+      beam.rotateX(stringerSlope)
+      beam.translate(sx, (y0 + y1) * 0.5 - 0.22, stair.z + stair.d * 0.5)
+      push('stairs|metal', beam)
     }
 
     // Sloped handrails with posts follow the rise rather than cutting across
     // the steps as the former horizontal guard bars did.
     const slope = -Math.atan2(rise, stair.d)
     const run = Math.hypot(stair.d, rise)
-    for (const railX of [stair.x + 0.1, stair.x + stair.w - 0.1]) {
+    for (const railX of [stair.x + 0.18, stair.x + stair.w - 0.18]) {
       const rail = new THREE.BoxGeometry(0.085, 0.10, run)
       rail.rotateX(slope)
       rail.translate(railX, (y0 + y1) * 0.5 + 0.83, stair.z + stair.d * 0.5)
-      push('stairs|trim', rail)
+      push('stairs|metal', rail)
       for (let i = 0; i <= steps; i += 2) {
         const t = i / steps
-        push('stairs|trim', slab(railX - 0.04, y0 + rise * t, stair.z + stair.d * t - 0.04, 0.08, 0.83, 0.08))
+        push('stairs|metal', slab(railX - 0.04, y0 + rise * t, stair.z + stair.d * t - 0.04, 0.08, 0.83, 0.08))
       }
     }
   }
@@ -404,6 +425,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     detail,
     rain,
     dispose() {
+      disposeCinematicArtV3()
       disposeVisualV3()
       disposeDressing()
       materials.dispose()
@@ -558,20 +580,36 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
         ...[-0.3, -0.18, -0.06].map(k => part(w * 0.56, 0.021, 0.027, -w * 0.03, h * (0.81 + k), d / 2, 'trim')),
       ]
     case 'recordcabinet':
+      // Three visually distinct drawer fronts, with recessed borders and brass labels.
+      // Their state is intentionally static until Cursor wires interaction.
       return [
         part(w, h, d, 0, 0, 0, 'wood'),
-        part(w * 1.04, 0.055, d * 1.06, 0, h - 0.04, 0, 'trim'),
-        ...[0.15, 0.41, 0.67].map(t => part(w * 0.92, 0.027, 0.03, 0, h * t, d / 2, 'metal')),
-        ...[-0.3, 0.3].map(x => part(0.035, h * 0.79, 0.03, x * w, h * 0.1, d / 2, 'metal')),
-        ...[0.25, 0.53, 0.79].map(t => part(0.17, 0.04, 0.05, 0, h * t, d / 2, 'metal')),
+        part(w * 1.02, 0.06, d * 1.04, 0, h - 0.05, 0, 'trim'),
+        part(w * 0.95, 0.095, d * 0.96, 0, 0, 0, 'trim'),
+        ...[0, 1, 2].flatMap(i => {
+          const y = h * (0.12 + i * 0.25)
+          return [
+            part(w * 0.86, h * 0.195, 0.027, 0, y, d * 0.512, 'trim'),
+            part(w * 0.80, h * 0.163, 0.032, 0, y + h * 0.014, d * 0.534, 'wood'),
+            part(w * 0.25, 0.055, 0.041, 0, y + h * 0.135, d * 0.566, 'metal'),
+            part(w * 0.23, 0.023, 0.055, 0, y + h * 0.05, d * 0.57, 'trim'),
+          ]
+        }),
       ]
     case 'filing':
       return [
         part(w, h, d, 0, 0, 0, 'metal'),
-        ...[0.1, 0.33, 0.56, 0.79].flatMap(t => [
-          part(w * 0.84, 0.025, 0.028, 0, h * t, d / 2, 'trim'),
-          part(w * 0.3, 0.04, 0.035, 0, h * (t + 0.11), d / 2, 'trim'),
-        ]),
+        part(w * 1.035, 0.05, d * 1.03, 0, h - 0.055, 0, 'trim'),
+        part(w * 0.93, 0.08, d * 0.96, 0, 0, 0, 'trim'),
+        ...[0, 1, 2, 3].flatMap(i => {
+          const y = h * (0.10 + i * 0.217)
+          return [
+            part(w * 0.85, h * 0.16, 0.024, 0, y, d * 0.516, 'trim'),
+            part(w * 0.79, h * 0.125, 0.028, 0, y + h * 0.015, d * 0.535, 'metal'),
+            part(w * 0.28, 0.047, 0.030, 0, y + h * 0.106, d * 0.556, 'trim'),
+            part(w * 0.25, 0.031, 0.053, 0, y + h * 0.034, d * 0.562, 'metal'),
+          ]
+        }),
       ]
     case 'sideboard':
       return [
@@ -628,8 +666,27 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
         ...[-1,1].flatMap(x => [-1,1].map(z => part(0.12, 0.12, 0.12, x*(w/2-0.08), 0.01, z*(d/2-0.07), 'trim'))),
       ]
     case 'cabinet':
+      return [
+        part(w, h, d, 0, 0, 0, 'wood'),
+        part(w * 0.92, h * 0.78, 0.022, 0, h * 0.13, d * 0.52, 'trim'),
+        ...[-1, 1].flatMap(side => [
+          part(w * 0.44, h * 0.73, 0.029, side * w * 0.23, h * 0.155, d * 0.537, 'wood'),
+          part(0.028, 0.14, 0.047, side * w * 0.08, h * 0.50, d * 0.568, 'metal'),
+        ]),
+      ]
     case 'dresser':
-      return [part(w, h, d, 0, 0, 0, 'wood')]
+      return [
+        part(w, h, d, 0, 0, 0, 'wood'),
+        part(w * 1.04, 0.055, d * 1.06, 0, h - 0.05, 0, 'trim'),
+        ...[0, 1, 2].flatMap(i => {
+          const y = h * (0.14 + i * 0.252)
+          return [
+            part(w * 0.88, h * 0.18, 0.026, 0, y, d * 0.51, 'trim'),
+            part(w * 0.82, h * 0.15, 0.031, 0, y + h * 0.013, d * 0.53, 'wood'),
+            part(w * 0.30, 0.036, 0.045, 0, y + h * 0.06, d * 0.56, 'metal'),
+          ]
+        }),
+      ]
     case 'stove':
       return [part(w, h, d, 0, 0, 0, 'metal')]
     case 'generator':

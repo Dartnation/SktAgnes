@@ -196,9 +196,10 @@ export const CONNECTIONS: ConnectionDef[] = [
 
 export const STAIRS: StairDef[] = [
   // The stair flights are offset from the door and have a real mid-floor landing.
-  // Old gap: just 0.4m at the Personnel Room door, too narrow for a player.
-  { id: 'stair_01', x: 50.1, z: 0.6, w: 3.8, d: 4.75, fromFloor: 0, toFloor: 1, axis: 'z' },
-  { id: 'stair_12', x: 50.1, z: 6.65, w: 3.8, d: 4.75, fromFloor: 1, toFloor: 2, axis: 'z' },
+  // Keep almost 1m clear of both end walls; floor holes, physics and nav use these same definitions.
+  // The middle landing remains 1.4m wide in z, safely clear of the Personnel Room doorway.
+  { id: 'stair_01', x: 50.1, z: 0.95, w: 3.8, d: 4.35, fromFloor: 0, toFloor: 1, axis: 'z' },
+  { id: 'stair_12', x: 50.1, z: 6.70, w: 3.8, d: 4.35, fromFloor: 1, toFloor: 2, axis: 'z' },
 ]
 
 function P(
@@ -271,6 +272,32 @@ export const PROPS: PropDef[] = [
   P('kam_cart', 'kammer', 'medicalcart', 45.5, 2.15, 0.8, 0.56, 0.9),
   P('kam_dresser', 'kammer', 'dresser', 38.1, 2.0, 1.1, 0.54, 1.2),
   P('kam_chair', 'kammer', 'chair', 45.5, 9.5, 0.46, 0.46, 0.9),
+  // V3 cinematic: 24 deliberately placed furniture silhouettes, two per main room.
+  // They remain outside the z≈6 door route and are checked for overlap in tests.
+  P('rec_waitbench', 'reception', 'bench', 2.8, 2.0, 1.5, 0.5, 0.5),
+  P('rec_pigeon', 'reception', 'shelf', 6.35, 2.15, 0.6, 0.4, 1.9),
+  P('pat_medicine', 'patientgang', 'medicalcart', 20.15, 2.2, 0.72, 0.55, 0.9),
+  P('pat_cabinet', 'patientgang', 'recordcabinet', 22.65, 9.5, 0.8, 0.5, 1.55),
+  P('op_sparecase', 'operationsstue', 'shelf', 30, 2.2, 1.3, 0.42, 1.75),
+  P('op_assistantchair', 'operationsstue', 'chair', 32, 9.35, 0.46, 0.46, 0.85),
+  P('slag_washstation', 'slagterum', 'cabinet', 37.25, 2.15, 0.65, 0.5, 1.3),
+  P('slag_rustbucket', 'slagterum', 'barrel', 43.3, 2.25, 0.55, 0.55, 0.76),
+  P('ark_filing2', 'arkiv', 'filing', 5.45, 9.45, 0.75, 0.54, 1.28),
+  P('ark_bookcase', 'arkiv', 'shelf', 1.15, 2.2, 0.55, 2.0, 2.1),
+  P('lab_archive', 'laboratorium', 'filing', 17.1, 2.3, 0.75, 0.55, 1.35),
+  P('lab_stool', 'laboratorium', 'chair', 18.6, 9.3, 0.46, 0.46, 0.85),
+  P('obd_cab2', 'obduktion', 'cabinet', 30.8, 2.1, 0.72, 0.55, 1.55),
+  P('obd_tray2', 'obduktion', 'medicalcart', 32.2, 9.45, 0.75, 0.55, 0.88),
+  P('pers_bench', 'personalerum', 'bench', 43.1, 2.15, 1.25, 0.5, 0.45),
+  P('pers_wardrobe', 'personalerum', 'locker', 46.6, 2.1, 0.72, 0.6, 1.8),
+  P('kael_spares', 'kaeldergang', 'cabinet', 2.6, 2.0, 0.75, 0.55, 1.45),
+  P('kael_cables', 'kaeldergang', 'barrel', 4.8, 2.2, 0.6, 0.6, 0.82),
+  P('kap_pew3', 'kapel', 'pew', 15, 3.65, 1.65, 0.5, 0.9),
+  P('kap_pew4', 'kapel', 'pew', 20.7, 3.65, 1.65, 0.5, 0.9),
+  P('obs_supply', 'observation', 'medicalcart', 27.45, 2.2, 0.76, 0.56, 0.85),
+  P('obs_records', 'observation', 'filing', 28.15, 9.4, 0.7, 0.56, 1.35),
+  P('kam_nightstand', 'kammer', 'cabinet', 42.1, 9.45, 0.68, 0.5, 0.88),
+  P('kam_storage', 'kammer', 'shelf', 42.2, 2.0, 0.62, 1.15, 1.7),
 ]
 
 export const PICKUPS: PickupDef[] = [
