@@ -6,7 +6,10 @@ import { Atmosphere } from '../horror/Atmosphere'
 import { JumpscareEngine } from '../horror/JumpscareEngine'
 import type { ScareKind } from '../horror/ScareLogic'
 import { EYE_STAND, eyeHeight, PLAYER_RADIUS, simulatePlayer, smoothEyeHeight, STAND_H, type SimPlayer } from '../player/PlayerController'
+import { clampDt } from '../core/clock'
+import { createBus, type GameBus, type GameSignal } from '../core/events'
 import { applyMouseLook, rightFromYaw, type Vec3 } from '../core/math'
+import { createRng, type Rng } from '../core/rng'
 import { flashlightBanishes, pickRelocate } from '../ai/presence'
 import { emptyScript, stepScript } from '../horror/ScriptedEvents'
 import { advanceEpoch, createSchedule, markRecovery, offerSequences, planBeat, stepSchedule, type ScheduleState } from '../horror/Schedule'
@@ -152,6 +155,8 @@ export class Game {
   private frameError = false
   private contextLost = false
   private readonly wantsIntro: boolean
+  private readonly bus: GameBus = createBus()
+  private rng: Rng = createRng(1)
 
   constructor(canvas: HTMLCanvasElement, private ui: UI, storage?: StorageLike) {
     this.storage = storage ?? browserStorage()
@@ -160,6 +165,9 @@ export class Game {
     const test = params.has('test')
     this.testMode = test
     this.wantsIntro = !test || params.has('intro')
+    const seedParam = Number(params.get('seed'))
+    const seed = Number.isFinite(seedParam) && seedParam > 0 ? Math.floor(seedParam) : test ? 1 : (Date.now() % 2147483646) + 1
+    this.rng = createRng(seed)
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,
@@ -289,7 +297,7 @@ export class Game {
   private onFrame = (now: number): void => {
     if (this.frozen || this.contextLost) return
     try {
-      const dt = Math.min(0.05, (now - this.clock) / 1000 || 0)
+      const dt = clampDt((now - this.clock) / 1000 || 0)
       this.clock = now
       this.fpsAcc += dt
       this.fpsFrames++
@@ -303,7 +311,7 @@ export class Game {
         this.acc += dt
         const step = 1 / cap
         if (this.acc >= step - 0.0001) {
-          const used = Math.min(0.05, this.acc)
+          const used = clampDt(this.acc)
           this.acc = 0
           this.advance(used)
         }
@@ -630,6 +638,7 @@ export class Game {
   private interact(): void {
     if (this.hiding) {
       this.hiding = null
+      this.bus.emit({ type: 'playerRevealed' })
       this.audio.play('door', this.feet(), { volume: 0.4 })
       return
     }
@@ -662,6 +671,7 @@ export class Game {
         }
         this.unlocked.add(door.id)
         this.desired.set(door.id, 1)
+        this.bus.emit({ type: 'doorOpened', id: door.id })
         this.audio.play('door', this.doorPos(door))
         this.audio.play('key')
         this.say('Låsene giver sig.')
@@ -673,6 +683,7 @@ export class Game {
       else if (door.keyId && hasItem(this.snap.inventory, door.keyId) && (!door.needsPower || this.snap.flags.generatorOn)) {
         this.unlocked.add(door.id)
         this.desired.set(door.id, 1)
+        this.bus.emit({ type: 'doorOpened', id: door.id })
         this.audio.play('door', this.doorPos(door))
         this.noise('door')
         return
@@ -684,7 +695,9 @@ export class Game {
       return
     }
     const amt = this.open.get(door.id) ?? 0
-    this.desired.set(door.id, amt > 0.4 ? 0 : 1)
+    const opening = amt <= 0.4
+    this.desired.set(door.id, opening ? 1 : 0)
+    if (opening) this.bus.emit({ type: 'doorOpened', id: door.id })
     this.audio.play('door', this.doorPos(door))
     this.noise('door')
   }
@@ -712,6 +725,7 @@ export class Game {
     }
     if (found.itemId.startsWith('key_')) this.say(`${def.name}. Nøgler ${keysFound(this.snap)}/3.`)
     if (found.itemId === 'rosary') this.snap.rosaryCharges = 2
+    this.bus.emit({ type: 'itemFound', id: found.itemId })
     this.refreshObjective()
   }
 
@@ -728,6 +742,7 @@ export class Game {
     }
     for (const id of need) this.snap.inventory = removeItem(this.snap.inventory, id, 1)
     this.snap.flags.generatorOn = true
+    this.bus.emit({ type: 'powerOn' })
     const gen = this.world.devices.find((d) => d.kind === 'generator')
     const genRoom = gen ? this.world.rooms.find((r) => r.id === gen.room) : undefined
     this.audio.play('generator', {
@@ -790,6 +805,7 @@ export class Game {
     const spot = this.world.hides.find((h) => h.id === id)
     if (!spot) return
     this.hiding = id
+    this.bus.emit({ type: 'playerHidden', id })
     this.sim.x = spot.x
     this.sim.z = spot.z
     this.sim.vx = 0
@@ -1212,7 +1228,10 @@ export class Game {
 
   private refreshObjective(): void {
     const id = currentObjective(this.snap).id
-    if (id !== this.lastObjective && this.lastObjective) this.persist(0)
+    if (id !== this.lastObjective && this.lastObjective) {
+      this.bus.emit({ type: 'objectiveCompleted', id: this.lastObjective })
+      this.persist(0)
+    }
   }
 
   private floorAllowed(_f: number): boolean {
@@ -1230,7 +1249,9 @@ export class Game {
     const my = this.sim.y < 2 ? -1 : this.sim.y < 6 ? 0 : 1
     const ey = this.monster.pos.y < 2 ? -1 : this.monster.pos.y < 6 ? 0 : 1
     const occluded = !lineOfSight(this.eyePos(), { x: this.monster.pos.x, y: this.monster.pos.y + 1.5, z: this.monster.pos.z }, activeColliders(this.world, this.unlocked, this.open))
-    this.noises.push({ kind, pos: this.feet(), floorDelta: Math.abs(my - ey), occluded })
+    const pos = this.feet()
+    this.noises.push({ kind, pos, floorDelta: Math.abs(my - ey), occluded })
+    this.bus.emit({ type: 'noiseEmitted', kind, x: pos.x, y: pos.y, z: pos.z })
   }
 
   private separateFromMonster(cols: ReturnType<typeof activeColliders>): void {
@@ -1361,6 +1382,7 @@ export class Game {
     this.audio.beginScene()
     this.setMode('playing')
     this.audio.ensure()
+    this.bus.emit({ type: 'saveLoaded', slot: -1 })
   }
 
   private settleLoadedBody(): void {
@@ -2204,6 +2226,8 @@ export class Game {
     window.__AGNES__ = {
       ready: true,
       introOn: () => game.introTime >= 0,
+      seed: () => game.rng.seed,
+      signals: () => game.bus.recent(),
       hiding: () => game.hiding,
       face: (yaw: number) => {
         game.sim.yaw = yaw
@@ -2340,6 +2364,8 @@ declare global {
     __AGNES__?: {
       ready: boolean
       introOn: () => boolean
+      seed: () => number
+      signals: () => GameSignal[]
       hiding: () => string | null
       face: (yaw: number) => void
       gfx: () => { fps: number; calls: number; triangles: number; lights: number; flash: number; face: number }
