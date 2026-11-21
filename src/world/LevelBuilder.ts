@@ -6,6 +6,7 @@ import type { DoorInst, LightDef, World } from './buildWorld'
 import { createMaterials, type Materials } from './textures'
 import { addHospitalSetDressing } from './SetDressing'
 import { addVisualV3 } from './VisualV3'
+import { addCinematicArtV3 } from './CinematicArtV3'
 
 export interface BuiltWorld {
   materials: Materials
@@ -41,6 +42,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
   const materials = createMaterials()
   const disposeDressing = addHospitalSetDressing(scene, world.rooms)
   const disposeVisualV3 = addVisualV3(scene, world.rooms)
+  const disposeCinematicArtV3 = addCinematicArtV3(scene, world.rooms, world.props)
   const buckets = new Map<string, THREE.BufferGeometry[]>()
   const push = (key: string, geo: THREE.BufferGeometry) => {
     const list = buckets.get(key) ?? []
@@ -146,8 +148,8 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     if (stair.axis !== 'z') continue
     const rise = y1 - y0
     const depth = stair.d / steps
-    const x0 = stair.x + 0.15
-    const width = stair.w - 0.3
+    const x0 = stair.x + 0.18
+    const width = stair.w - 0.36
     for (let i = 0; i < steps; i++) {
       const t1 = (i + 1) / steps
       const top = y0 + t1 * rise
@@ -156,21 +158,23 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
       // A hair of overlap avoids visible cracks on the GPU.
       push('stairs|concrete', slab(x0, y0, z, width, top - y0, depth * 1.005))
       // Thin dark edge makes each tread legible from above.
-      push('stairs|trim', slab(x0, top - 0.025, z + depth * 0.85, width, 0.026, depth * 0.13))
+      push('stairs|trim', slab(x0 + 0.035, top - 0.020, z + depth * 0.85, width - 0.07, 0.026, depth * 0.13))
+      // Narrow worn non-slip inlay, following each real tread.
+      push('stairs|metal', slab(x0 + 0.12, top - 0.008, z + depth * 0.68, width - 0.24, 0.009, depth * 0.045))
     }
 
     // Sloped handrails with posts follow the rise rather than cutting across
     // the steps as the former horizontal guard bars did.
     const slope = -Math.atan2(rise, stair.d)
     const run = Math.hypot(stair.d, rise)
-    for (const railX of [stair.x + 0.1, stair.x + stair.w - 0.1]) {
+    for (const railX of [stair.x + 0.18, stair.x + stair.w - 0.18]) {
       const rail = new THREE.BoxGeometry(0.085, 0.10, run)
       rail.rotateX(slope)
       rail.translate(railX, (y0 + y1) * 0.5 + 0.83, stair.z + stair.d * 0.5)
-      push('stairs|trim', rail)
+      push('stairs|metal', rail)
       for (let i = 0; i <= steps; i += 2) {
         const t = i / steps
-        push('stairs|trim', slab(railX - 0.04, y0 + rise * t, stair.z + stair.d * t - 0.04, 0.08, 0.83, 0.08))
+        push('stairs|metal', slab(railX - 0.04, y0 + rise * t, stair.z + stair.d * t - 0.04, 0.08, 0.83, 0.08))
       }
     }
   }
@@ -404,6 +408,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     detail,
     rain,
     dispose() {
+      disposeCinematicArtV3()
       disposeVisualV3()
       disposeDressing()
       materials.dispose()
