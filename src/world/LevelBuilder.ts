@@ -553,6 +553,31 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
       return [part(w, h, d, 0, 0, 0, 'stone')]
     case 'bench':
       return [part(w, 0.08, d, 0, 0.42, 0, 'wood'), part(0.08, 0.42, d, -w / 2, 0, 0, 'wood'), part(0.08, 0.42, d, w / 2, 0, 0, 'wood')]
+    case 'receptiondesk': {
+      // Full-scale 1980s hospital registration counter, not a coffee table.
+      // All surfaces remain inside the existing prop's collision footprint.
+      const front = -d * 0.5
+      const parts: Part[] = [
+        part(w * 0.96, h * 0.84, d * 0.82, 0, 0.07, 0, 'wood'),
+        part(w * 1.04, 0.075, d * 1.08, 0, h - 0.09, 0, 'trim'),
+        // Raised writing ledge along the customer-facing side.
+        part(w * 1.04, 0.10, d * 0.22, 0, h - 0.03, front + d * 0.09, 'wood'),
+        part(w * 0.99, h * 0.72, 0.033, 0, 0.13, front - 0.012, 'wood'),
+        part(w * 0.98, 0.115, 0.04, 0, 0.07, front - 0.05, 'metal'),
+        part(w * 1.05, 0.065, 0.052, 0, h * 0.71, front - 0.052, 'trim'),
+        // Two shallow inset desk drawers on the attendant side.
+        part(w * 0.66, 0.034, 0.03, 0, h * 0.55, d * 0.49, 'metal'),
+      ]
+      for (let i = 0; i < 13; i++) {
+        const x = (i / 12 - 0.5) * (w * 0.91)
+        parts.push(part(0.023, h * (i % 4 === 0 ? 0.62 : 0.55), 0.052, x, 0.14, front - 0.057, i % 3 === 0 ? 'trim' : 'wood'))
+      }
+      for (const side of [-1, 1]) {
+        parts.push(part(0.09, h * 0.84, d * 0.86, side * w * 0.47, 0.06, 0, 'wood'))
+        parts.push(part(0.035, h * 0.58, 0.048, side * w * 0.48, 0.22, front - 0.045, 'metal'))
+      }
+      return parts
+    }
     case 'desk':
     case 'table':
       return [
@@ -633,12 +658,19 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
       ]
     case 'medicalcart':
       return [
-        part(w, 0.055, d, 0, h - 0.06, 0, 'metal'),
-        part(w, 0.05, d, 0, 0.34, 0, 'metal'),
-        ...[-1,1].flatMap(x => [-1,1].map(z => part(0.035, h - 0.1, 0.035, x*(w/2-0.06), 0.12, z*(d/2-0.06), 'metal'))),
-        ...[-1,1].flatMap(x => [-1,1].map(z => part(0.11, 0.10, 0.11, x*(w/2-0.09), 0.02, z*(d/2-0.07), 'trim'))),
-        part(w * 0.78, 0.05, d * 0.76, 0, h * 0.62, 0, 'metal'),
-        part(w * 0.52, 0.05, 0.04, 0, h - 0.1, d * 0.58, 'trim'),
+        part(w * 1.025, 0.066, d * 1.08, 0, h - 0.074, 0, 'metal'),
+        part(w, 0.05, d, 0, 0.31, 0, 'metal'),
+        ...[-1,1].flatMap(x => [-1,1].map(z =>
+          part(0.035, h - 0.11, 0.035, x*(w/2-0.065), 0.11, z*(d/2-0.065), 'metal'))),
+        ...[-1,1].flatMap(x => [-1,1].map(z =>
+          part(0.11, 0.10, 0.11, x*(w/2-0.10), 0.02, z*(d/2-0.07), 'trim'))),
+        part(w * 0.83, 0.033, d * 0.81, 0, h * 0.58, 0, 'metal'),
+        ...[-1,1].map(z =>
+          part(w * 0.98, 0.13, 0.034, 0, h - 0.16, z*d*0.54, 'trim')),
+        ...[-1,1].map(x =>
+          part(0.034, 0.13, d*0.86, x*w*0.52, h - 0.16, 0, 'trim')),
+        part(w * 0.46, 0.055, 0.042, 0, h*0.61, d*0.52, 'trim'),
+        part(w * 0.61, 0.045, 0.27, 0, 0.34, 0, 'glass'),
       ]
     case 'foldscreen':
       return [
@@ -658,12 +690,26 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
       return [part(w, h, d, 0, 0, 0, 'tileWall')]
     case 'gurney':
       return [
-        part(w, 0.075, d, 0, 0.7, 0, 'metal'),
-        part(w * 0.93, 0.07, d * 0.84, 0, 0.78, 0, 'fabric'),
-        part(w * 0.21, 0.075, d * 0.66, -w * 0.33, 0.86, 0, 'fabric'),
-        ...[-1,1].flatMap(x => [-1,1].map(z => part(0.045, 0.73, 0.045, x*(w/2-0.08), 0, z*(d/2-0.06), 'metal'))),
-        ...[-1,1].map(z => part(w * 0.91, 0.038, 0.044, 0, 0.45, z * d * 0.51, 'metal')),
-        ...[-1,1].flatMap(x => [-1,1].map(z => part(0.12, 0.12, 0.12, x*(w/2-0.08), 0.01, z*(d/2-0.07), 'trim'))),
+        // Painted medical steel chassis and adjustable stretcher bed.
+        part(w * 0.93, 0.075, d * 0.93, 0, 0.66, 0, 'metal'),
+        part(w * 0.91, 0.11, d * 0.83, 0, 0.73, 0, 'fabric'),
+        part(w * 0.84, 0.034, d * 0.77, 0, 0.84, 0, 'fabric'),
+        part(w * 0.23, 0.085, d * 0.57, -w * 0.31, 0.86, 0, 'trim'),
+        ...[-1, 1].flatMap(x => [-1, 1].map(z =>
+          part(0.045, 0.68, 0.045, x * (w / 2 - 0.11), 0.03, z * (d / 2 - 0.12), 'metal'))),
+        ...[-1, 1].map(z =>
+          part(w * 0.73, 0.036, 0.04, 0, 0.51, z * d * 0.54, 'metal')),
+        ...[-1, 1].map(z =>
+          part(w * 0.63, 0.034, 0.042, 0, 0.84, z * d * 0.54, 'metal')),
+        ...[-1, 1].map(z => [
+          part(0.035, 0.17, 0.035, -w * 0.28, 0.67, z * d * 0.54, 'metal'),
+          part(0.035, 0.17, 0.035, w * 0.28, 0.67, z * d * 0.54, 'metal'),
+        ]).flat(),
+        ...[-1, 1].flatMap(x => [-1, 1].map(z =>
+          part(0.12, 0.12, 0.12, x * (w / 2 - 0.13), 0.005, z * (d / 2 - 0.13), 'trim'))),
+        // Tucked-in patient sheet and rear storage tray.
+        part(w * 0.49, 0.021, d * 0.62, w * 0.13, 0.87, 0, 'glass'),
+        part(w * 0.47, 0.04, d * 0.46, 0, 0.27, 0, 'metal'),
       ]
     case 'cabinet':
       return [
