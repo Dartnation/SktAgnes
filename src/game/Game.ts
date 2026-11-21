@@ -68,6 +68,7 @@ export class Game {
   private schedule: ScheduleState = createSchedule()
   private tone: ToneState = createTone()
   private radioAt = -99
+  private extraCueAt = 28
   private settings: Settings
   private storage: StorageLike
   private mode: Mode = 'menu'
@@ -1504,6 +1505,22 @@ export class Game {
     if (radioPulse(this.snap.flags.radioOn, this.snap.playTime, this.radioAt)) {
       this.radioAt = this.snap.playTime
       this.audio.play('whisper', RADIO_SOURCE, { volume: 0.2, occluded: true })
+    }
+    // Player-supplied recordings are rare environmental one-shots, not loops.
+    // No new gameplay/noise events are generated for monster AI.
+    if (room && this.snap.playTime >= this.extraCueAt) {
+      const babyRoom = ['patientgang', 'observation', 'kammer'].includes(room.id)
+      const pigRoom = ['slagterum', 'obduktion', 'kaeldergang'].includes(room.id)
+      if (babyRoom || pigRoom) {
+        const kind = babyRoom ? 'babyLaugh' : 'pigRhythm'
+        const position = {
+          x: room.x + Math.min(room.w - 1, 3.0),
+          y: FLOOR_Y[room.floor] + 1.25,
+          z: room.z + room.d - 1.1,
+        }
+        this.audio.playUserScare(kind, position)
+        this.extraCueAt = this.snap.playTime + 65 + (room.id.length % 5) * 11
+      }
     }
   }
 
