@@ -646,7 +646,16 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
     case 'counter':
       return [part(w, h, d, 0, 0, 0, 'tileWall'), part(w, 0.06, d, 0, h - 0.06, 0, 'metal')]
     case 'pew':
-      return [part(w, 0.08, d, 0, 0.42, 0, 'wood'), part(w, 0.55, 0.08, 0, 0.42, -d / 2, 'wood')]
+      return [
+        part(w, 0.095, d * 0.86, 0, 0.43, 0, 'wood'),
+        part(w, 0.59, 0.095, 0, 0.40, -d * 0.51, 'wood'),
+        ...[-1,1].flatMap(x => [
+          part(0.10, 0.55, d * 0.89, x * w * 0.45, 0.01, 0, 'wood'),
+          part(0.19, 0.12, d * 0.80, x * w * 0.45, 0.015, 0, 'trim'),
+          part(0.055, 0.12, d * 0.54, x * w * 0.42, 0.54, -d * 0.28, 'trim'),
+        ]),
+        part(w * 0.83, 0.032, 0.20, 0, 0.30, -d * 0.12, 'wood'),
+      ]
     case 'altar':
       return [part(w, h, d, 0, 0, 0, 'stone'), part(0.08, 0.35, 0.08, -0.3, h, 0, 'trim')]
     case 'sofa':
@@ -748,18 +757,49 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
       ]
     case 'bed':
       return [
-        part(w, 0.12, d, 0, 0.32, 0, 'wood'),
-        part(w * 0.94, 0.14, d * 0.9, 0, 0.44, 0, 'fabric'),
-        part(w * 0.28, 0.1, d * 0.28, -w * 0.28, 0.58, -d * 0.28, 'fabric'),
+        part(w, 0.11, d, 0, 0.31, 0, 'metal'),
+        part(w * 0.91, 0.17, d * 0.9, 0, 0.42, 0, 'fabric'),
+        part(w * 0.36, 0.095, d * 0.77, -w * 0.27, 0.60, 0, 'trim'),
+        part(w * 0.49, 0.052, d * 0.94, w * 0.18, 0.61, 0, 'glass'),
+        part(0.065, 0.72, d * 1.05, -w * 0.51, 0.0, 0, 'metal'),
+        part(0.065, 0.52, d * 1.05, w * 0.51, 0, 0, 'metal'),
+        ...[-1,1].flatMap(side => [
+          part(w * 0.82, 0.044, 0.048, 0, 0.82, side * d * 0.52, 'metal'),
+          part(w * 0.80, 0.04, 0.06, 0, 0.62, side * d * 0.52, 'metal'),
+        ]),
+        ...[-1,1].flatMap(x => [-1,1].map(z =>
+          part(0.047, 0.38, 0.047, x * w * 0.46, 0.0, z * d * 0.44, 'metal'))),
       ]
-    case 'wheelchair':
-      return [
-        part(w * 0.78, 0.075, d * 0.65, 0, 0.48, 0, 'fabric'),
-        part(w * 0.8, 0.5, 0.075, 0, 0.53, -d * 0.37, 'fabric'),
-        ...[-1,1].map(k => part(0.06, 0.32, d * 0.7, k*w*0.48, 0.47, 0, 'metal')),
-        ...[-1,1].map(k => part(0.11, 0.68, 0.12, k*w*0.55, 0.1, 0, 'metal')),
-        part(w * 1.16, 0.04, 0.05, 0, 0.11, d * 0.4, 'metal'),
+    case 'wheelchair': {
+      // A real chair silhouette: large spoked rims, rear cushion and casters.
+      const parts: Part[] = [
+        part(w * 0.70, 0.085, d * 0.62, 0, 0.47, 0.015, 'fabric'),
+        part(w * 0.72, 0.47, 0.065, 0, 0.57, -d * 0.37, 'fabric'),
+        part(w * 0.80, 0.045, d * 0.65, 0, 0.39, 0, 'metal'),
+        ...[-1,1].map(k => part(0.04, 0.25, d * 0.64, k * w * 0.45, 0.51, 0, 'metal')),
+        ...[-1,1].map(k => part(0.20, 0.045, d * 0.48, k * w * 0.43, 0.72, -d * 0.10, 'fabric')),
+        ...[-1,1].map(k => part(0.035, 0.47, 0.04, k * w * 0.43, 0.09, -d * 0.36, 'metal')),
+        part(w * 1.04, 0.035, 0.04, 0, 0.34, d * 0.30, 'metal'),
       ]
+      for (const side of [-1, 1]) {
+        const rim = new THREE.TorusGeometry(0.27, 0.035, 8, 24)
+        rim.rotateY(Math.PI / 2)
+        rim.translate(side * w * 0.50, 0.34, -0.03)
+        parts.push({ geo: rim, mat: 'metal' })
+        const tire = new THREE.TorusGeometry(0.27, 0.016, 6, 24)
+        tire.rotateY(Math.PI / 2)
+        tire.translate(side * w * 0.50 + side * 0.001, 0.34, -0.03)
+        parts.push({ geo: tire, mat: 'monster' })
+        for (let k = 0; k < 6; k++) {
+          const a = Math.PI * k / 3
+          const spoke = new THREE.BoxGeometry(0.012, 0.42, 0.018)
+          spoke.rotateX(a)
+          spoke.translate(side * w * 0.50, 0.34, -0.03)
+          parts.push({ geo: spoke, mat: 'trim' })
+        }
+      }
+      return parts
+    }
     case 'plant':
       return [part(0.22, 0.28, 0.22, 0, 0, 0, 'trim')]
     case 'beam':
