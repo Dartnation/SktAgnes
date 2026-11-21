@@ -75,14 +75,13 @@ export class MonsterActor {
   concealed = false
 
   constructor() {
-    const skin = new THREE.MeshStandardMaterial({ color: '#3a3034', roughness: 0.86, metalness: 0.02 })
-    const pale = new THREE.MeshStandardMaterial({ color: '#242523', roughness: 0.99, metalness: 0 })
+    const skin = new THREE.MeshStandardMaterial({ color: '#353332', roughness: 0.94, metalness: 0.01 })
+    const pale = new THREE.MeshStandardMaterial({ color: '#232525', roughness: 0.99, metalness: 0 })
     const dark = new THREE.MeshStandardMaterial({ color: '#100c0c', roughness: 0.45 })
-    const pupil = new THREE.MeshStandardMaterial({ color: '#120b0a', emissive: '#3c100e', emissiveIntensity: 0.09, roughness: 0.98 })
-    const ink = new THREE.MeshStandardMaterial({ color: '#1a1412', roughness: 0.5 })
-    const agedCloth = new THREE.MeshStandardMaterial({ color: '#403734', roughness: 1, side: THREE.DoubleSide })
-    const blood = new THREE.MeshStandardMaterial({ color: '#3f1115', roughness: 0.9 })
-    const bone = new THREE.MeshStandardMaterial({ color: '#a39882', roughness: 0.98 })
+        const ink = new THREE.MeshStandardMaterial({ color: '#1a1412', roughness: 0.5 })
+    const agedCloth = new THREE.MeshStandardMaterial({ color: '#373a37', roughness: 1, side: THREE.DoubleSide })
+    const blood = new THREE.MeshStandardMaterial({ color: '#321e20', roughness: 0.98 })
+    const bone = new THREE.MeshStandardMaterial({ color: '#5d5953', roughness: 0.98 })
 
     const pelvis = new THREE.Group()
     pelvis.position.y = 0.96
@@ -150,37 +149,39 @@ export class MonsterActor {
     head.position.y = 0.14
     this.head = head
     neck.add(head)
-    // V3 creature: a shrouded, almost featureless head. Nothing bright or cartoonish.
-    const skull = cast(new THREE.Mesh(new THREE.SphereGeometry(0.145, 18, 12), pale))
-    skull.scale.set(0.89, 1.15, 0.7)
-    skull.position.y = 0.06
-    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.235, 0.34, 9), agedCloth)
-    hood.position.set(0, 0.29, -0.035)
-    hood.rotation.x = -0.17
-    const eyeL = almond(dark, pupil, -0.05, 0.08, 0.093, -0.18)
-    const eyeR = almond(dark, pupil, 0.053, 0.077, 0.093, 0.13)
-    eyeL.scale.set(0.56, 0.66, 0.55)
-    eyeR.scale.set(0.56, 0.66, 0.55)
-    const seam = new THREE.Mesh(smileCurve(), ink)
-    seam.scale.set(0.5, 0.12, 0.24)
-    seam.position.set(0, -0.06, 0.095)
-    head.add(skull, hood, eyeL, eyeR, seam)
-    // Asymmetric rips in a soaked hospital gown; silhouette, not a mask.
-    for (let i = 0; i < 7; i++) {
-      const strip = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.055 + (i % 3) * 0.013, 0.22 + (i % 4) * 0.055),
+    // V3 cinematic silhouette: a sewn cowl with no pale face, teeth, or glowing eyes.
+    const skull = cast(new THREE.Mesh(new THREE.SphereGeometry(0.144, 17, 12), pale))
+    skull.scale.set(0.86, 1.15, 0.68)
+    skull.position.y = 0.07
+    const hood = new THREE.Mesh(tornCowl(), agedCloth)
+    hood.position.set(0, 0.045, -0.015)
+    hood.rotation.z = 0.07
+    hood.castShadow = true
+    const faceVoid = new THREE.Mesh(new THREE.SphereGeometry(0.125, 14, 10), dark)
+    faceVoid.scale.set(0.85, 1.17, 0.27)
+    faceVoid.position.set(0, 0.06, 0.155)
+    head.add(skull, faceVoid, hood)
+    // Uneven wraps and sutures imply a human history without a cartoon mouth.
+    for (let i = 0; i < 6; i++) {
+      const wrap = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.18 + (i % 3) * 0.028, 0.035),
         agedCloth,
       )
-      strip.position.set((i - 3) * 0.05, -0.23 - (i % 2) * 0.03, 0.09)
-      strip.rotation.z = (i - 3) * 0.065
-      head.add(strip)
+      wrap.position.set((i % 2 ? -0.013 : 0.013), 0.20 - i * 0.05, 0.205)
+      wrap.rotation.z = (i % 3 - 1) * 0.18
+      head.add(wrap)
     }
     for (let i = 0; i < 4; i++) {
-      const stitch = new THREE.Mesh(new THREE.BoxGeometry(0.009, 0.027, 0.006), ink)
-      stitch.position.set(-0.038 + i * 0.027, -0.12, 0.103)
-      stitch.rotation.z = 0.34
-      head.add(stitch)
+      const suture = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.027, 0.006), ink)
+      suture.position.set(-0.038 + i * 0.025, -0.12, 0.205)
+      suture.rotation.z = i % 2 ? 0.35 : -0.30
+      head.add(suture)
     }
+    // A ragged hospital restraint hangs below the neck and sways with the spine.
+    const restraint = new THREE.Mesh(new THREE.PlaneGeometry(0.31, 0.64, 4, 4), agedCloth)
+    restraint.position.set(0.15, -0.35, 0.228)
+    restraint.rotation.z = -0.17
+    spine.add(restraint)
 
     this.group.add(pelvis)
     this.group.visible = false
@@ -523,6 +524,47 @@ function torsoShell(): THREE.BufferGeometry {
   const geo = new THREE.LatheGeometry(pts, 12)
   displace(geo, 0.008)
   return geo
+}
+
+
+/** Uneven hospital-cloth hood with a rounded crown and torn open lower hem. */
+function tornCowl(): THREE.BufferGeometry {
+  const segments = 18
+  const rings = [
+    { y: -0.26, r: 0.26 },
+    { y: -0.12, r: 0.22 },
+    { y: 0.06, r: 0.19 },
+    { y: 0.22, r: 0.185 },
+    { y: 0.37, r: 0.13 },
+    { y: 0.43, r: 0.018 },
+  ]
+  const positions: number[] = []
+  const indices: number[] = []
+  for (let j = 0; j < rings.length; j++) {
+    const { r, y } = rings[j]
+    for (let i = 0; i < segments; i++) {
+      const a = (i / segments) * Math.PI * 2
+      const fray = j === 0 ? Math.sin(i * 3.7) * 0.045 : 0
+      const uneven = 1 + 0.09 * Math.sin(i * 1.61 + j * 2.3)
+      positions.push(
+        Math.cos(a) * r * uneven,
+        y + fray,
+        Math.sin(a) * r * uneven - (i % 3) * 0.002,
+      )
+    }
+  }
+  for (let j = 0; j < rings.length - 1; j++) {
+    for (let i = 0; i < segments; i++) {
+      const a = j * segments + i
+      const next = j * segments + ((i + 1) % segments)
+      indices.push(a, next, a + segments, next, next + segments, a + segments)
+    }
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
 }
 
 function noisyCylinder(radiusTop: number, radiusBottom: number, height: number): THREE.BufferGeometry {
