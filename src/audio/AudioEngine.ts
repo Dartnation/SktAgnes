@@ -74,6 +74,10 @@ export class AudioEngine {
   private scareGain: GainNode | null = null
   private analyser: AnalyserNode | null = null
   private buffers = new Map<string, AudioBuffer>()
+  // Uploaded clips supplied by the player; placed under public/audio via the
+  // companion sound pack (kept optional for development branches without media).
+  private extras = new Map<'babyLaugh' | 'pigRhythm', AudioBuffer>()
+  private extraTried = false
   private slices: AudioBuffer[] = []
   private activeSteps = new Set<{ source: AudioBufferSourceNode; amp: GainNode }>()
   private bed: AudioBufferSourceNode | null = null
@@ -165,6 +169,52 @@ export class AudioEngine {
       this.prevState = now
     }
     void this.loadClips()
+    void this.loadUserScares()
+  }
+
+  private async loadUserScares(): Promise<void> {
+    if (this.extraTried || !this.ctx) return
+    this.extraTried = true
+    const ctx = this.ctx
+    const files = {
+      babyLaugh: 'kilde%20baby%20grin.mp3',
+      pigRhythm: 'rytme%20griselyd.mp3',
+    } as const
+    await Promise.all((Object.keys(files) as Array<keyof typeof files>).map(async kind => {
+      try {
+        const path = import.meta.env.BASE_URL + 'audio/' + files[kind]
+        const response = await fetch(path)
+        if (!response.ok || !response.headers.get('content-type')?.includes('audio')) return
+        const bytes = await response.arrayBuffer()
+        if (bytes.byteLength < 256) return
+        const decoded = await ctx.decodeAudioData(bytes)
+        if (decoded.duration < 0.5) return
+        this.extras.set(kind, decoded)
+        this.mark('load-ok:extra:' + kind)
+      } catch {
+        // The separate sound pack may not be installed yet.
+      }
+    }))
+  }
+
+  /** Sparse positional accents; never a loop or a full-volume jumpscare. */
+  playUserScare(kind: 'babyLaugh' | 'pigRhythm', pos: Vec3): boolean {
+    const ctx = this.ctx
+    const buffer = this.extras.get(kind)
+    if (!ctx || ctx.state !== 'running' || !buffer) return false
+    const now = performance.now() / 1000
+    const gap = kind === 'babyLaugh' ? 95 : 75
+    if (now - (this.lastPlayed.get(kind) ?? -999) < gap) return false
+    const distance = Math.hypot(pos.x - this.listenPos.x, pos.z - this.listenPos.z)
+    if (distance > 15) return false
+    const distanceGain = 1 / (1 + (distance / 4) ** 2)
+    const volume = (kind === 'babyLaugh' ? 0.10 : 0.12) * distanceGain
+    const output = this.fire(buffer, this.sfxGain, volume, 1, pos, false)
+    if (output) {
+      this.lastPlayed.set(kind, now)
+      this.mark('extra:' + kind)
+    }
+    return output
   }
 
   /** Call this synchronously inside the click or key that starts the game. */
