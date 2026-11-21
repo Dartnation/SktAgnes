@@ -68,6 +68,7 @@ export class Game {
   private schedule: ScheduleState = createSchedule()
   private tone: ToneState = createTone()
   private radioAt = -99
+  private extraCueAt = 28
   private settings: Settings
   private storage: StorageLike
   private mode: Mode = 'menu'
@@ -1505,6 +1506,22 @@ export class Game {
       this.radioAt = this.snap.playTime
       this.audio.play('whisper', RADIO_SOURCE, { volume: 0.2, occluded: true })
     }
+    // Player-supplied recordings are rare environmental one-shots, not loops.
+    // No new gameplay/noise events are generated for monster AI.
+    if (room && this.snap.playTime >= this.extraCueAt) {
+      const babyRoom = ['patientgang', 'observation', 'kammer'].includes(room.id)
+      const pigRoom = ['slagterum', 'obduktion', 'kaeldergang'].includes(room.id)
+      if (babyRoom || pigRoom) {
+        const kind = babyRoom ? 'babyLaugh' : 'pigRhythm'
+        const position = {
+          x: room.x + Math.min(room.w - 1, 3.0),
+          y: FLOOR_Y[room.floor] + 1.25,
+          z: room.z + room.d - 1.1,
+        }
+        this.audio.playUserScare(kind, position)
+        this.extraCueAt = this.snap.playTime + 65 + (room.id.length % 5) * 11
+      }
+    }
   }
 
   private zoneFor(roomId?: string): string {
@@ -1899,37 +1916,37 @@ export class Game {
   }
 
   private buildLunge(): THREE.Group {
+    // V3 art pass: an attack is represented by reaching, uneven gloved arms.
+    // Never place the former pale smiling face directly against the camera.
     const g = new THREE.Group()
-    const pale = new THREE.MeshBasicMaterial({ color: '#e7ddd2', depthTest: false })
-    const ink = new THREE.MeshBasicMaterial({ color: '#140c0c', depthTest: false })
-    const face = new THREE.Mesh(new THREE.SphereGeometry(0.2, 24, 16), pale)
-    face.scale.set(0.88, 1.22, 0.5)
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), ink)
-    eyeL.scale.set(1.4, 0.45, 0.4)
-    eyeL.position.set(-0.06, 0.03, 0.08)
-    const eyeR = eyeL.clone()
-    eyeR.position.x = 0.065
-    const pupil = new THREE.MeshBasicMaterial({ color: '#ac281d' })
-    const pL = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), pupil)
-    pL.position.set(-0.06, 0.03, 0.1)
-    const pR = pL.clone()
-    pR.position.x = 0.065
-    g.add(face, eyeL, eyeR, pL, pR)
-    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.17,0.042,0.016),ink)
-    mouth.position.set(0,-0.075,0.097)
-    g.add(mouth)
-    const wound = new THREE.MeshBasicMaterial({color:'#4f1715',depthTest:false})
-    for (let i=0;i<5;i++) {
-      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.009,0.035,4),pale)
-      tooth.position.set((i-2)*0.031,-0.073,0.111)
-      tooth.rotation.z=Math.PI
-      g.add(tooth)
-      const scar = new THREE.Mesh(new THREE.BoxGeometry(0.008,0.06+(i%2)*0.028,0.006),wound)
-      scar.position.set(-0.115+i*0.04,-0.12+i*0.008,0.089)
-      scar.rotation.z=0.3
-      g.add(scar)
+    const sleeve = new THREE.MeshStandardMaterial({ color: '#292928', roughness: 0.97 })
+    const glove = new THREE.MeshStandardMaterial({ color: '#191a1a', roughness: 0.92 })
+    const seam = new THREE.MeshStandardMaterial({ color: '#4c4741', roughness: 1 })
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Group()
+      arm.position.set(side * 0.34, -0.18, -0.08)
+      arm.rotation.z = -side * 0.24
+      const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.095, 0.38, 10), sleeve)
+      forearm.rotation.z = -side * 0.28
+      arm.add(forearm)
+      const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.063, 0.07, 0.045, 10), seam)
+      cuff.position.set(-side * 0.045, 0.18, 0.025)
+      arm.add(cuff)
+      const palm = new THREE.Mesh(new THREE.SphereGeometry(0.077, 10, 7), glove)
+      palm.position.set(-side * 0.09, 0.27, 0.08)
+      arm.add(palm)
+      for (let i = 0; i < 4; i++) {
+        const finger = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.014, 0.022, 0.15 + (i % 3) * 0.035, 7),
+          glove,
+        )
+        finger.position.set(-side * (0.12 + i * 0.039), 0.37 + (i % 2) * 0.025, 0.085)
+        finger.rotation.z = -side * (0.2 + i * 0.08)
+        arm.add(finger)
+      }
+      g.add(arm)
     }
-    g.position.set(0, 0, -0.7)
+    g.position.set(0, -0.16, -0.7)
     g.visible = false
     g.renderOrder = 20
     return g
@@ -1943,9 +1960,9 @@ export class Game {
     const coat = new THREE.MeshStandardMaterial({ color: '#292628', roughness: 0.99, side: THREE.DoubleSide })
     const cloth = new THREE.MeshStandardMaterial({ color: '#665b4e', roughness: 0.98, side: THREE.DoubleSide })
     const blood = new THREE.MeshStandardMaterial({ color: '#481919', roughness: 0.87 })
-    const mask = new THREE.MeshStandardMaterial({ color: '#a69e8d', roughness: 0.88 })
+    const mask = new THREE.MeshStandardMaterial({ color: '#44413d', roughness: 0.98 })
     const iron = new THREE.MeshStandardMaterial({ color: '#66615b', metalness: 0.7, roughness: 0.52 })
-    const skin = new THREE.MeshStandardMaterial({ color: '#5e4d46', roughness: 0.96 })
+    const skin = new THREE.MeshStandardMaterial({ color: '#34312f', roughness: 0.96 })
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.76, 6, 12), coat)
     body.position.y = 1.11
     body.castShadow = true
@@ -1983,15 +2000,17 @@ export class Game {
     const surgicalMask = new THREE.Mesh(new THREE.BoxGeometry(0.30,0.14,0.035),mask)
     surgicalMask.position.set(0,1.71,0.17)
     g.add(surgicalMask)
-    const eyes = new THREE.MeshStandardMaterial({color:'#17100e',roughness:0.95})
+    // Eyes deliberately obscured under the worn surgical bandage.
     for (const side of [-1,1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.048,10,8),eyes)
-      eye.position.set(side*0.08,1.845,0.165)
-      eye.scale.set(1.1,0.48,0.65)
-      g.add(eye)
       const strap = new THREE.Mesh(new THREE.BoxGeometry(0.034,0.72,0.032),cloth)
       strap.position.set(side*0.235,1.26,0.29)
       g.add(strap)
+      for (let i = 0; i < 3; i++) {
+        const wornStrip = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.047, 0.019), cloth)
+        wornStrip.position.set(side * 0.012, 1.83 - i * 0.06, 0.182 + 0.006 * i)
+        wornStrip.rotation.z = side * 0.08 + i * 0.045
+        g.add(wornStrip)
+      }
     }
     const cleaver = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.42,0.018),iron)
     cleaver.position.set(0.48,0.52,0.17)
