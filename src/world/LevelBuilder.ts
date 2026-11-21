@@ -6,6 +6,7 @@ import type { DoorInst, LightDef, World } from './buildWorld'
 import { createMaterials, type Materials } from './textures'
 import { addHospitalSetDressing } from './SetDressing'
 import { addVisualV3 } from './VisualV3'
+import { addV32Furniture } from './VisualV32Furniture'
 
 export interface BuiltWorld {
   materials: Materials
@@ -41,6 +42,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
   const materials = createMaterials()
   const disposeDressing = addHospitalSetDressing(scene, world.rooms)
   const disposeVisualV3 = addVisualV3(scene, world.rooms)
+  const disposeV32Furniture = addV32Furniture(scene, world.rooms, world.props)
   const buckets = new Map<string, THREE.BufferGeometry[]>()
   const push = (key: string, geo: THREE.BufferGeometry) => {
     const list = buckets.get(key) ?? []
@@ -146,8 +148,10 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     if (stair.axis !== 'z') continue
     const rise = y1 - y0
     const depth = stair.d / steps
-    const x0 = stair.x + 0.15
-    const width = stair.w - 0.3
+    // V3.2: make a clearly visible clearance around the stair flight.
+    // Keep the physical stair volume and navigation ramp unchanged.
+    const x0 = stair.x + 0.30
+    const width = stair.w - 0.60
     for (let i = 0; i < steps; i++) {
       const t1 = (i + 1) / steps
       const top = y0 + t1 * rise
@@ -163,7 +167,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     // the steps as the former horizontal guard bars did.
     const slope = -Math.atan2(rise, stair.d)
     const run = Math.hypot(stair.d, rise)
-    for (const railX of [stair.x + 0.1, stair.x + stair.w - 0.1]) {
+    for (const railX of [stair.x + 0.30, stair.x + stair.w - 0.30]) {
       const rail = new THREE.BoxGeometry(0.085, 0.10, run)
       rail.rotateX(slope)
       rail.translate(railX, (y0 + y1) * 0.5 + 0.83, stair.z + stair.d * 0.5)
@@ -404,6 +408,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     detail,
     rain,
     dispose() {
+      disposeV32Furniture()
       disposeVisualV3()
       disposeDressing()
       materials.dispose()
