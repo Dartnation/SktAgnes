@@ -382,10 +382,24 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
       case 'trappe0':
       case 'trappe1':
       case 'trappe2': {
-        // Short rail-mounted plates above the actual ramp, no new collision.
-        for (let i = 0; i < 3; i++) {
-          b(r, 'iron', 0.20, 1.04 + i * 0.47, 1.3 + i * 0.30, 0.10, 0.06, 0.21)
+        // Architectural shaft identity: wall handrails, old level signs and
+        // visible electrical trunking. Narrow new flights stay clear of these.
+        for (const x of [0.29, 7.71]) {
+          b(r, 'iron', x, 1.15, 3.0, 0.065, 0.075, 3.95)
+          b(r, 'brass', x, 1.18, 3.0, 0.095, 0.018, 3.95)
+          for (const zz of [1.25, 3.0, 4.75])
+            b(r, 'iron', x, 1.0, zz, 0.14, 0.33, 0.052)
+          b(r, 'iron', x, 2.90, 7.45, 0.065, 0.075, 3.70)
+          for (const zz of [5.76, 7.3, 9.07])
+            b(r, 'iron', x, 2.75, zz, 0.14, 0.33, 0.052)
         }
+        pipe(r, 0.75, 3.07, 11.70, 5.7)
+        poster(r, 4.0, 1.72, 11.79, 2.70, 0.76, -1,
+          'TRAPPEOPGANG', r.floor === 0 ? 'TIL 1. SAL' : r.floor === 1 ? 'TIL 2. SAL' : 'UDGANG')
+        b(r, 'paint', 6.6, 1.34, 0.38, 0.78, 1.04, 0.19)
+        for (let i = 0; i < 6; i++)
+          b(r, i === 0 ? 'rust' : 'iron', 6.35 + (i % 3) * 0.24,
+            1.65 - Math.floor(i / 3) * 0.37, 0.493, 0.13, 0.13, 0.028)
         break
       }
     }
