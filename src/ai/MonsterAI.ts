@@ -586,25 +586,3 @@ function displace(geo: THREE.BufferGeometry, amount: number): void {
   geo.computeVertexNormals()
 }
 
-function smileCurve(): THREE.BufferGeometry {
-  const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-0.09, 0.028, 0.1),
-    new THREE.Vector3(-0.045, 0.016, 0.104),
-    new THREE.Vector3(0, 0.012, 0.106),
-    new THREE.Vector3(0.045, 0.016, 0.104),
-    new THREE.Vector3(0.09, 0.028, 0.1),
-  ])
-  return new THREE.TubeGeometry(curve, 18, 0.0024, 4, false)
-}
-
-function almond(socket: THREE.Material, pupilMat: THREE.Material, x: number, y: number, z: number, tilt: number): THREE.Group {
-  const g = new THREE.Group()
-  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.026, 12, 8), socket)
-  eye.scale.set(1.45, 0.48, 0.4)
-  const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 6), pupilMat)
-  pupil.position.z = 0.03
-  g.add(eye, pupil)
-  g.position.set(x, y, z)
-  g.rotation.z = tilt
-  return g
-}
