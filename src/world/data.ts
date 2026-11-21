@@ -217,7 +217,7 @@ function P(
 
 /** Furniture sits in corners, clear of the door line at z≈6 and the shared walls. */
 export const PROPS: PropDef[] = [
-  P('rec_desk', 'reception', 'table', 4, 9.5, 1.6, 0.7, 0.78),
+  P('rec_desk', 'reception', 'receptiondesk', 4, 9.5, 2.6, 0.86, 1.12),
   P('rec_chair', 'reception', 'chair', 4, 8.4, 0.45, 0.45, 0.9),
   P('pat_bench', 'patientgang', 'bench', 18, 2.2, 1.4, 0.45, 0.48),
   P('op_table', 'operationsstue', 'gurney', 30, 9.2, 1.8, 0.7, 0.85),
