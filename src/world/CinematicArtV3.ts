@@ -156,6 +156,49 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
   }
   const wallPlaques: THREE.Material[] = []
   const wallTextures: THREE.Texture[] = []
+  const poster = (r: RoomDef, x: number, y: number, z: number,
+    width: number, height: number, facing: 1 | -1, header: string, sub: string) => {
+    const c = document.createElement('canvas')
+    c.width = 768
+    c.height = 384
+    const g = c.getContext('2d')
+    if (!g) return
+    g.fillStyle = '#302d2a'
+    g.fillRect(0, 0, c.width, c.height)
+    g.fillStyle = '#b9ae91'
+    g.fillRect(30, 27, 708, 330)
+    g.fillStyle = '#746d5c'
+    g.fillRect(45, 41, 678, 300)
+    g.fillStyle = '#d0c3a5'
+    g.fillRect(52, 47, 664, 288)
+    g.fillStyle = '#3a3b36'
+    g.textAlign = 'center'
+    g.font = 'bold 49px Georgia,serif'
+    g.fillText(header, 384, 148, 650)
+    g.fillStyle = '#67574b'
+    g.font = '33px Georgia,serif'
+    g.fillText(sub, 384, 217, 655)
+    g.fillStyle = '#6d302b'
+    g.fillRect(275, 257, 220, 5)
+    for (let i = 0; i < 520; i++) {
+      const x0 = (i * 173 + 17) % 768
+      const y0 = (i * 101 + 53) % 384
+      g.fillStyle = i % 3 === 0 ? 'rgba(46,31,20,0.20)' : 'rgba(70,59,41,0.09)'
+      g.fillRect(x0, y0, 2 + (i % 5), 1 + (i % 3))
+    }
+    const map = new THREE.CanvasTexture(c)
+    map.colorSpace = THREE.SRGBColorSpace
+    map.anisotropy = 4
+    const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.93 })
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(width, height), mat)
+    sign.position.set(r.x + x, FLOOR_Y[r.floor] + y, r.z + z)
+    if (facing === -1) sign.rotation.y = Math.PI
+    sign.name = 'V3_Poster_' + r.id + '_' + header
+    root.add(sign)
+    wallPlaques.push(mat)
+    wallTextures.push(map)
+    b(r, 'iron', x, y, z + facing * -0.027, width + 0.10, height + 0.10, 0.048)
+  }
   for (const r of rooms) {
     if (r.outdoors) continue
     // All additional geometry stays at walls, above tables or inside existing furniture.
@@ -216,6 +259,31 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
         }
         chart(r, 8.2, 1.78, 0.29)
         for (let i = 0; i < 3; i++) vial(r, 9.22 + i * 0.14, 1.04, 9.67)
+        // Large, unmistakable period hospital reception identity.
+        poster(r, 4.25, 2.53, 11.78, 3.1, 0.91, -1, 'SANKT AGNES', 'MODTAGELSE  •  NATTJENESTE')
+        poster(r, 9.25, 2.13, 11.78, 1.55, 0.85, -1, 'VISITATION', 'JOURNALER / 1987')
+        // Vintage desk telephone: base, handset, rotary dial and cord.
+        b(r, 'rubber', 3.24, 1.19, 9.42, 0.36, 0.12, 0.23)
+        b(r, 'iron', 3.24, 1.28, 9.42, 0.20, 0.030, 0.12)
+        place(r, 'rod', 'porcelain', 3.24, 1.271, 9.34, 0.118, 0.018, 0.118, Math.PI / 2)
+        for (let i = 0; i < 8; i++) {
+          const a = i * Math.PI / 4
+          place(r, 'orb', 'shadow',
+            3.24 + Math.cos(a) * 0.041, 1.295, 9.34 + Math.sin(a) * 0.041,
+            0.016, 0.009, 0.016)
+        }
+        // Reception lamp, paperwork and metal bell on the counter top.
+        b(r, 'brass', 4.65, 1.19, 9.56, 0.22, 0.025, 0.18)
+        tube(r, 'brass', 4.65, 1.39, 9.56, 0.017, 0.38)
+        place(r, 'orb', 'warm', 4.65, 1.59, 9.55, 0.34, 0.14, 0.22)
+        folder(r, 3.65, 1.17, 9.68, 8)
+        folder(r, 4.12, 1.17, 9.66, 5)
+        place(r, 'orb', 'brass', 4.95, 1.23, 9.22, 0.18, 0.10, 0.18)
+        b(r, 'brass', 4.95, 1.17, 9.22, 0.21, 0.027, 0.21)
+        // Stronger period radiator / wall fixture silhouettes in waiting area.
+        b(r, 'iron', 2.52, 0.63, 11.69, 2.25, 0.67, 0.17)
+        for (let i = 0; i < 13; i++)
+          b(r, 'paint', 1.50 + i * 0.17, 0.65, 11.58, 0.085, 0.53, 0.09)
         break
       }
       case 'patientgang': {
@@ -223,6 +291,7 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
         b(r, 'paint', 7.6, 1.35, 0.28, 1.27, 0.8, 0.19)
         for (let i = 0; i < 4; i++) b(r, i === 0 ? 'warm' : 'shadow', 7.23 + i * 0.25, 1.52, 0.393, 0.085, 0.12, 0.02)
         chart(r, 9.57, 1.78, 0.28)
+        poster(r, 5.5, 2.62, 11.78, 1.78, 0.72, -1, 'PATIENTFLØJ', 'STUE 01–08  •  STILHED')
         pipe(r, 1.6, 1.05, 11.68, 2.3)
         pipe(r, 7.2, 1.05, 11.68, 2.2)
         break
@@ -251,6 +320,7 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
       case 'arkiv': {
         // Archive labels and readable microfilm silhouette, separate from safe.
         chart(r, 6.7, 1.74, 0.30)
+        poster(r, 6.45, 2.52, 11.78, 2.24, 0.72, -1, 'ARKIVET', 'INGEN ADGANG UDEN NØGLE')
         b(r, 'oak', 4.1, 0.64, 9.42, 0.76, 1.26, 0.38)
         for (let i = 0; i < 10; i++) folder(r, 3.80 + (i % 5) * 0.16, 0.83 + Math.floor(i / 5) * 0.45, 9.32, 2)
         b(r, 'iron', 7.7, 1.18, 2.34, 0.52, 0.31, 0.4)
@@ -261,6 +331,7 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
         b(r, 'iron', 9.3, 1.53, 0.28, 1.5, 1.32, 0.32)
         for (let i = 0; i < 9; i++) vial(r, 8.77 + (i % 3) * 0.22, 1.01 + Math.floor(i / 3) * 0.36, 0.53)
         dial(r, 7.1, 1.78, 0.39)
+        poster(r, 6.25, 2.53, 11.78, 2.22, 0.72, -1, 'LABORATORIUM', 'PRØVER  •  ADGANG FORBUDT')
         chart(r, 5.68, 1.82, 0.28)
         break
       }
