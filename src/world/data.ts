@@ -198,8 +198,11 @@ export const STAIRS: StairDef[] = [
   // The stair flights are offset from the door and have a real mid-floor landing.
   // Keep almost 1m clear of both end walls; floor holes, physics and nav use these same definitions.
   // The middle landing remains 1.4m wide in z, safely clear of the Personnel Room doorway.
-  { id: 'stair_01', x: 50.1, z: 0.95, w: 3.8, d: 4.35, fromFloor: 0, toFloor: 1, axis: 'z' },
-  { id: 'stair_12', x: 50.1, z: 6.70, w: 3.8, d: 4.35, fromFloor: 1, toFloor: 2, axis: 'z' },
+  // Reduced the excessive 3.8 m-wide stair slabs to a 2.55 m stair
+  // centered inside the 8 m shaft: 2.8 m free passage on either side.
+  // Gameplay uses these same definitions for its ramps, cutouts and navigation.
+  { id: 'stair_01', x: 50.75, z: 0.95, w: 2.55, d: 4.35, fromFloor: 0, toFloor: 1, axis: 'z' },
+  { id: 'stair_12', x: 50.75, z: 6.70, w: 2.55, d: 4.35, fromFloor: 1, toFloor: 2, axis: 'z' },
 ]
 
 function P(
