@@ -134,6 +134,7 @@ export function migrateSnapshot(raw: unknown): GameSnapshot | null {
         }
       : emptyScript(),
     readIds,
+    containers: src.containers && typeof src.containers === 'object' ? src.containers : undefined,
   }
 }
 

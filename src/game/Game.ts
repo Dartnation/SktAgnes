@@ -18,6 +18,7 @@ import { lineOfSight, overlapsSolid, selectInteract, type InteractCandidate } fr
 import { activeColliders, buildWorld, doorBlocksNav, patrolPoints, roomAt, sampleFloorY, type World } from '../world/buildWorld'
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
 import { EXIT_DOOR, FLOOR_Y } from '../world/data'
+import { ContainerHost } from './ContainerHost'
 import { Input } from './Input'
 import { GAMEPLAY_EDGES, inventoryKey, MODAL_KEYS, modeAction, type GameMode } from './modalInput'
 import { UI } from '../ui/UI'
@@ -106,6 +107,7 @@ export class Game {
   private acc = 0
   private noises: { kind: NoiseKind; pos: { x: number; y: number; z: number }; floorDelta: number; occluded: boolean }[] = []
   private runtime: RuntimePickup[] = []
+  private containers: ContainerHost
   private rosaryCd = 0
   private stepDist = 0
   private batteryWarned = false
@@ -192,6 +194,7 @@ export class Game {
 
     this.world = buildWorld()
     this.built = buildLevel(this.scene, this.world)
+    this.containers = new ContainerHost(this.scene)
     this.monster = new MonsterActor()
     this.scene.add(this.monster.group)
     this.atmo = new Atmosphere(this.scene, 24)
@@ -363,6 +366,7 @@ export class Game {
       this.stepIntro(dt)
       return
     }
+    this.containers.step(dt, false)
     this.viewmodel.visible = true
     this.snap.playTime += dt
     this.snap.iFrame = Math.max(0, this.snap.iFrame - dt)
@@ -655,7 +659,7 @@ export class Game {
       this.audio.play('click')
       this.noise('voice')
       this.say(this.snap.flags.radioOn ? 'Radioen knitrer.' : 'Radioen er slukket.')
-    }
+    } else if (hit.kind === 'container') this.useContainer(hit.id)
   }
 
   private useDoor(id: string): void {
@@ -1158,6 +1162,7 @@ export class Game {
         prompt: prompts[d.kind],
       })
     }
+    list.push(...this.containers.candidates())
     for (const h of this.world.hides) {
       const room = this.world.rooms.find((r) => r.id === h.room)!
       list.push({
@@ -1245,13 +1250,65 @@ export class Game {
     return allow
   }
 
-  private noise(kind: NoiseKind): void {
-    const my = this.sim.y < 2 ? -1 : this.sim.y < 6 ? 0 : 1
+  private noise(kind: NoiseKind, at?: { x: number; y: number; z: number }): void {
+    const pos = at ?? this.feet()
+    const my = pos.y < 2 ? -1 : pos.y < 6 ? 0 : 1
     const ey = this.monster.pos.y < 2 ? -1 : this.monster.pos.y < 6 ? 0 : 1
-    const occluded = !lineOfSight(this.eyePos(), { x: this.monster.pos.x, y: this.monster.pos.y + 1.5, z: this.monster.pos.z }, activeColliders(this.world, this.unlocked, this.open))
-    const pos = this.feet()
+    const occluded = !lineOfSight(pos, { x: this.monster.pos.x, y: this.monster.pos.y + 1.5, z: this.monster.pos.z }, activeColliders(this.world, this.unlocked, this.open))
     this.noises.push({ kind, pos, floorDelta: Math.abs(my - ey), occluded })
     this.bus.emit({ type: 'noiseEmitted', kind, x: pos.x, y: pos.y, z: pos.z })
+  }
+
+  private useContainer(id: string): void {
+    const result = this.containers.use(
+      id,
+      this.eyePos(),
+      (itemId) => hasItem(this.snap.inventory, itemId),
+      (itemId) => addItem(this.snap.inventory, itemId, 1).added > 0,
+      activeColliders(this.world, this.unlocked, this.open),
+    )
+    const at = { x: result.x, y: result.y, z: result.z }
+    if (result.effect === 'opening' || result.effect === 'closing') {
+      this.audio.play(result.kind === 'cabinet' ? 'door' : 'creak', at, { volume: 0.62 })
+      this.noise('door', at)
+      this.say(result.effect === 'opening'
+        ? (result.kind === 'cabinet' ? 'Lågen giver sig.' : 'Skuffen glider ud.')
+        : (result.kind === 'cabinet' ? 'Lågen går i.' : 'Skuffen går i.'))
+    } else if (result.effect === 'locked') {
+      this.audio.play('locked', at, { volume: 0.7 })
+      this.noise('door', at)
+      this.say('Låst. Du mangler den rigtige nøgle.')
+    } else if (result.effect === 'busy') {
+      this.say('Den bevæger sig stadig.')
+    } else if (result.effect === 'occluded') {
+      this.say('Du kan ikke nå den.')
+    } else if (result.effect === 'no_space') {
+      this.say('Du kan ikke bære flere.')
+    } else if (result.effect === 'taken' && result.itemId) {
+      this.grantContainerItem(result.itemId)
+    } else if (result.effect === 'already_taken') {
+      this.say('Der er ikke mere.')
+    }
+  }
+
+  private grantContainerItem(itemId: string): void {
+    const res = addItem(this.snap.inventory, itemId, 1)
+    if (!res.added) {
+      this.say('Du kan ikke bære flere.')
+      return
+    }
+    this.snap.inventory = res.slots
+    const paper = itemId.startsWith('note') || itemId.startsWith('file')
+    this.audio.play(paper ? 'paper' : itemId.startsWith('key') ? 'key' : 'pickup')
+    const def = itemDef(itemId)
+    if (def.kind === 'note' || def.kind === 'story' || def.kind === 'map' || def.kind === 'collectible') this.openExamine(itemId)
+    if (itemId === 'battery') {
+      this.sim.battery = boostBattery(this.sim.battery, 50)
+      this.say('Batteri. +50%.')
+    } else if (itemId.startsWith('fuse_')) this.say(`${def.name}.`)
+    else if (!paper) this.say(def.name)
+    this.bus.emit({ type: 'itemFound', id: itemId })
+    this.refreshObjective()
   }
 
   private separateFromMonster(cols: ReturnType<typeof activeColliders>): void {
@@ -1327,6 +1384,7 @@ export class Game {
     this.hiding = null
     this.runtime.forEach((p) => p.mesh.visible = false)
     this.runtime = []
+    this.containers.reset()
     for (const [id, mesh] of this.built.pickups) mesh.visible = !this.snap.pickedUp.includes(id)
     this.monster.spawn(this.snap.monster, this.snap.monster.yaw, 'Patrol')
     this.director = createDirector()
@@ -1357,6 +1415,7 @@ export class Game {
       this.desired.set(id, 1)
     }
     this.hiding = null
+    this.containers.load(snap.containers)
     if (!this.snap.readIds) this.snap.readIds = []
     this.settleLoadedBody()
     for (const [id, mesh] of this.built.pickups) mesh.visible = !snap.pickedUp.includes(id)
@@ -1425,6 +1484,7 @@ export class Game {
   }
 
   private copySim(): void {
+    this.snap.containers = this.containers.save()
     this.snap.player = {
       x: this.sim.x,
       y: this.sim.y,
@@ -2310,6 +2370,7 @@ export class Game {
       fps: () => game.fps,
       monster: () => ({ x: game.monster.pos.x, y: game.monster.pos.y, z: game.monster.pos.z, state: game.monster.bb.state }),
       doorOpen: (id: string) => (game.open.get(id) ?? 0) > 0.6,
+      container: (id: string) => game.containers.state(id),
       aim: () => {
         const hit = selectInteract(game.eyePos(), { x: game.camDir.x, y: game.camDir.y, z: game.camDir.z }, game.candidates())
         return hit ? { id: hit.id, kind: hit.kind, prompt: hit.prompt } : null
@@ -2391,6 +2452,7 @@ declare global {
       fps: () => number
       monster: () => { x: number; y: number; z: number; state: string }
       doorOpen: (id: string) => boolean
+      container: (id: string) => { progress: number; target: string; takenIds: readonly string[] } | null
       aim: () => { id: string; kind: string; prompt: string } | null
       tension: () => number
       lastScare: () => string | null
