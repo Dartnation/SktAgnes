@@ -121,7 +121,7 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
     if (r.outdoors) continue
     // All additional geometry stays at walls, above tables or inside existing furniture.
     // Never obstruct central door approach (z ~ 6) with decorative objects.
-    const x = r.w - 1.55
+    const x = r.w - 0.95
     const title = LABELS[r.id]
     if (title) {
       const canvas = document.createElement('canvas')
