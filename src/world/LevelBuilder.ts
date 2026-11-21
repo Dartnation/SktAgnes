@@ -563,20 +563,36 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
         ...[-0.3, -0.18, -0.06].map(k => part(w * 0.56, 0.021, 0.027, -w * 0.03, h * (0.81 + k), d / 2, 'trim')),
       ]
     case 'recordcabinet':
+      // Three visually distinct drawer fronts, with recessed borders and brass labels.
+      // Their state is intentionally static until Cursor wires interaction.
       return [
         part(w, h, d, 0, 0, 0, 'wood'),
-        part(w * 1.04, 0.055, d * 1.06, 0, h - 0.04, 0, 'trim'),
-        ...[0.15, 0.41, 0.67].map(t => part(w * 0.92, 0.027, 0.03, 0, h * t, d / 2, 'metal')),
-        ...[-0.3, 0.3].map(x => part(0.035, h * 0.79, 0.03, x * w, h * 0.1, d / 2, 'metal')),
-        ...[0.25, 0.53, 0.79].map(t => part(0.17, 0.04, 0.05, 0, h * t, d / 2, 'metal')),
+        part(w * 1.02, 0.06, d * 1.04, 0, h - 0.05, 0, 'trim'),
+        part(w * 0.95, 0.095, d * 0.96, 0, 0, 0, 'trim'),
+        ...[0, 1, 2].flatMap(i => {
+          const y = h * (0.12 + i * 0.25)
+          return [
+            part(w * 0.86, h * 0.195, 0.027, 0, y, d * 0.512, 'trim'),
+            part(w * 0.80, h * 0.163, 0.032, 0, y + h * 0.014, d * 0.534, 'wood'),
+            part(w * 0.25, 0.055, 0.041, 0, y + h * 0.135, d * 0.566, 'metal'),
+            part(w * 0.23, 0.023, 0.055, 0, y + h * 0.05, d * 0.57, 'trim'),
+          ]
+        }),
       ]
     case 'filing':
       return [
         part(w, h, d, 0, 0, 0, 'metal'),
-        ...[0.1, 0.33, 0.56, 0.79].flatMap(t => [
-          part(w * 0.84, 0.025, 0.028, 0, h * t, d / 2, 'trim'),
-          part(w * 0.3, 0.04, 0.035, 0, h * (t + 0.11), d / 2, 'trim'),
-        ]),
+        part(w * 1.035, 0.05, d * 1.03, 0, h - 0.055, 0, 'trim'),
+        part(w * 0.93, 0.08, d * 0.96, 0, 0, 0, 'trim'),
+        ...[0, 1, 2, 3].flatMap(i => {
+          const y = h * (0.10 + i * 0.217)
+          return [
+            part(w * 0.85, h * 0.16, 0.024, 0, y, d * 0.516, 'trim'),
+            part(w * 0.79, h * 0.125, 0.028, 0, y + h * 0.015, d * 0.535, 'metal'),
+            part(w * 0.28, 0.047, 0.030, 0, y + h * 0.106, d * 0.556, 'trim'),
+            part(w * 0.25, 0.031, 0.053, 0, y + h * 0.034, d * 0.562, 'metal'),
+          ]
+        }),
       ]
     case 'sideboard':
       return [
@@ -633,8 +649,27 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
         ...[-1,1].flatMap(x => [-1,1].map(z => part(0.12, 0.12, 0.12, x*(w/2-0.08), 0.01, z*(d/2-0.07), 'trim'))),
       ]
     case 'cabinet':
+      return [
+        part(w, h, d, 0, 0, 0, 'wood'),
+        part(w * 0.92, h * 0.78, 0.022, 0, h * 0.13, d * 0.52, 'trim'),
+        ...[-1, 1].flatMap(side => [
+          part(w * 0.44, h * 0.73, 0.029, side * w * 0.23, h * 0.155, d * 0.537, 'wood'),
+          part(0.028, 0.14, 0.047, side * w * 0.08, h * 0.50, d * 0.568, 'metal'),
+        ]),
+      ]
     case 'dresser':
-      return [part(w, h, d, 0, 0, 0, 'wood')]
+      return [
+        part(w, h, d, 0, 0, 0, 'wood'),
+        part(w * 1.04, 0.055, d * 1.06, 0, h - 0.05, 0, 'trim'),
+        ...[0, 1, 2].flatMap(i => {
+          const y = h * (0.14 + i * 0.252)
+          return [
+            part(w * 0.88, h * 0.18, 0.026, 0, y, d * 0.51, 'trim'),
+            part(w * 0.82, h * 0.15, 0.031, 0, y + h * 0.013, d * 0.53, 'wood'),
+            part(w * 0.30, 0.036, 0.045, 0, y + h * 0.06, d * 0.56, 'metal'),
+          ]
+        }),
+      ]
     case 'stove':
       return [part(w, h, d, 0, 0, 0, 'metal')]
     case 'generator':
