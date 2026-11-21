@@ -143,7 +143,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
   // the giant solid wedge shown in the user's screenshot. The ramp and floor
   // cutouts continue to use the shared StairDef geometry.
   for (const stair of world.stairs) {
-    const steps = 14
+    const steps = 21
     const y0 = FLOOR_Y[stair.fromFloor]
     const y1 = FLOOR_Y[stair.toFloor]
     if (stair.axis !== 'z') continue
@@ -156,12 +156,12 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
       const top = y0 + t1 * rise
       const z = stair.z + i * depth
       // Each tread is a thin slab: the space underneath stays truly open.
-      const treadThickness = 0.15
-      push('stairs|concrete', slab(x0, top - treadThickness, z, width, treadThickness, depth * 1.005))
+      const treadThickness = 0.105
+      push('stairs|stone', slab(x0, top - treadThickness, z, width, treadThickness, depth * 1.005))
       // Short riser only between neighbouring step surfaces, never to ground.
       if (i > 0) {
         const prevTop = y0 + (i / steps) * rise
-        push('stairs|concrete', slab(x0 + 0.015, prevTop - 0.04, z, width - 0.03, top - prevTop + 0.04, 0.065))
+        push('stairs|stone', slab(x0 + 0.015, prevTop - 0.04, z, width - 0.03, top - prevTop + 0.04, 0.065))
       }
       // Thin dark edge makes each tread legible from above.
       push('stairs|trim', slab(x0 + 0.035, top - 0.020, z + depth * 0.85, width - 0.07, 0.026, depth * 0.13))
