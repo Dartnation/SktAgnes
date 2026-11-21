@@ -138,9 +138,10 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     }
   }
 
-  // Solid treads and risers instead of floating 12cm plates. A full-size
-  // landing stays clear of the Personnel Room door between the two flights.
-  // The player still glides smoothly on the matching collision ramp.
+  // Open, suspended stair construction rather than full-height concrete blocks.
+  // The previous stair geometry filled every step down to the floor, producing
+  // the giant solid wedge shown in the user's screenshot. The ramp and floor
+  // cutouts continue to use the shared StairDef geometry.
   for (const stair of world.stairs) {
     const steps = 14
     const y0 = FLOOR_Y[stair.fromFloor]
@@ -154,13 +155,29 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
       const t1 = (i + 1) / steps
       const top = y0 + t1 * rise
       const z = stair.z + i * depth
-      // Each concrete riser supports the next tread down to the flight base.
-      // A hair of overlap avoids visible cracks on the GPU.
-      push('stairs|concrete', slab(x0, y0, z, width, top - y0, depth * 1.005))
+      // Each tread is a thin slab: the space underneath stays truly open.
+      const treadThickness = 0.15
+      push('stairs|concrete', slab(x0, top - treadThickness, z, width, treadThickness, depth * 1.005))
+      // Short riser only between neighbouring step surfaces, never to ground.
+      if (i > 0) {
+        const prevTop = y0 + (i / steps) * rise
+        push('stairs|concrete', slab(x0 + 0.015, prevTop - 0.04, z, width - 0.03, top - prevTop + 0.04, 0.065))
+      }
       // Thin dark edge makes each tread legible from above.
       push('stairs|trim', slab(x0 + 0.035, top - 0.020, z + depth * 0.85, width - 0.07, 0.026, depth * 0.13))
       // Narrow worn non-slip inlay, following each real tread.
       push('stairs|metal', slab(x0 + 0.12, top - 0.008, z + depth * 0.68, width - 0.24, 0.009, depth * 0.045))
+    }
+
+    // Two structural stringers under the treads: believable support without a
+    // blank concrete wall covering the whole flight.
+    const stringerSlope = -Math.atan2(rise, stair.d)
+    const stringerRun = Math.hypot(stair.d, rise)
+    for (const sx of [x0 + 0.13, x0 + width - 0.13]) {
+      const beam = new THREE.BoxGeometry(0.13, 0.25, stringerRun)
+      beam.rotateX(stringerSlope)
+      beam.translate(sx, (y0 + y1) * 0.5 - 0.22, stair.z + stair.d * 0.5)
+      push('stairs|metal', beam)
     }
 
     // Sloped handrails with posts follow the rise rather than cutting across
