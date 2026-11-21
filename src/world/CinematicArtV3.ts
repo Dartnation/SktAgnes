@@ -40,19 +40,58 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
     ring: new THREE.TorusGeometry(0.5, 0.075, 7, 15),
     sheet: new THREE.PlaneGeometry(1, 1),
   }
+  // Tiny deterministic wear maps add grain/pitting without importing heavy textures.
+  // These are art assets for the static details, not scanned photorealistic PBR.
+  const wearMaps: THREE.CanvasTexture[] = []
+  const wearMap = (seed: number, direction: 'grain' | 'scratch' | 'pitted') => {
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 128
+    const ctx = canvas.getContext('2d')
+    let state = seed >>> 0
+    const random = () => {
+      state = (state * 1664525 + 1013904223) >>> 0
+      return state / 4294967296
+    }
+    if (ctx) {
+      ctx.fillStyle = '#e4e1d9'
+      ctx.fillRect(0, 0, 128, 128)
+      for (let i = 0; i < 490; i++) {
+        const x = random() * 128, y = random() * 128
+        const a = 0.02 + random() * 0.14
+        ctx.fillStyle = 'rgba(26,24,20,' + a.toFixed(3) + ')'
+        ctx.fillRect(x, y, 0.5 + random() * 2.6, 0.5 + random() * 2.6)
+      }
+      for (let i = 0; i < 46; i++) {
+        const x = random() * 128, y = random() * 128
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        if (direction === 'grain') ctx.lineTo(x + random() * 1.5, y + 8 + random() * 50)
+        else if (direction === 'scratch') ctx.lineTo(x + 4 + random() * 18, y + random() * 2)
+        else ctx.arc(x, y, 0.3 + random() * 2.8, 0, Math.PI * 2)
+        ctx.strokeStyle = 'rgba(41,33,24,' + (0.04 + random() * 0.17).toFixed(3) + ')'
+        ctx.lineWidth = 0.6
+        ctx.stroke()
+      }
+    }
+    const map = new THREE.CanvasTexture(canvas)
+    map.colorSpace = THREE.SRGBColorSpace
+    map.wrapS = map.wrapT = THREE.RepeatWrapping
+    wearMaps.push(map)
+    return map
+  }
   const materials: Record<Finish, THREE.MeshStandardMaterial> = {
-    paint: new THREE.MeshStandardMaterial({ color: '#57605a', roughness: 0.83, metalness: 0.13 }),
-    iron: new THREE.MeshStandardMaterial({ color: '#4c4d4b', roughness: 0.62, metalness: 0.77 }),
-    brass: new THREE.MeshStandardMaterial({ color: '#80725b', roughness: 0.53, metalness: 0.8 }),
+    paint: new THREE.MeshStandardMaterial({ color: '#65716a', map: wearMap(81, 'pitted'), roughness: 0.83, metalness: 0.13 }),
+    iron: new THREE.MeshStandardMaterial({ color: '#5d5e5b', map: wearMap(73, 'scratch'), roughness: 0.62, metalness: 0.77 }),
+    brass: new THREE.MeshStandardMaterial({ color: '#8d7b5e', map: wearMap(52, 'scratch'), roughness: 0.53, metalness: 0.8 }),
     porcelain: new THREE.MeshStandardMaterial({ color: '#aaa699', roughness: 0.78, metalness: 0 }),
     glass: new THREE.MeshStandardMaterial({ color: '#62746e', roughness: 0.22, metalness: 0.08, transparent: true, opacity: 0.62, depthWrite: false }),
-    oak: new THREE.MeshStandardMaterial({ color: '#44352e', roughness: 0.9 }),
-    paper: new THREE.MeshStandardMaterial({ color: '#9e9481', roughness: 1, side: THREE.DoubleSide }),
-    cloth: new THREE.MeshStandardMaterial({ color: '#484443', roughness: 1, side: THREE.DoubleSide }),
+    oak: new THREE.MeshStandardMaterial({ color: '#584438', map: wearMap(110, 'grain'), roughness: 0.9 }),
+    paper: new THREE.MeshStandardMaterial({ color: '#b3a58e', map: wearMap(15, 'pitted'), roughness: 1, side: THREE.DoubleSide }),
+    cloth: new THREE.MeshStandardMaterial({ color: '#504c47', map: wearMap(126, 'grain'), roughness: 1, side: THREE.DoubleSide }),
     rubber: new THREE.MeshStandardMaterial({ color: '#242a29', roughness: 0.94 }),
     shadow: new THREE.MeshStandardMaterial({ color: '#1c2020', roughness: 1 }),
     warm: new THREE.MeshStandardMaterial({ color: '#927c56', roughness: 0.75, emissive: '#24190c', emissiveIntensity: 0.09 }),
-    rust: new THREE.MeshStandardMaterial({ color: '#67493b', roughness: 0.92, metalness: 0.44 }),
+    rust: new THREE.MeshStandardMaterial({ color: '#745244', map: wearMap(48, 'pitted'), roughness: 0.92, metalness: 0.44 }),
   }
   const batches = new Map<string, Place[]>()
   const decorated = new Set<string>()
@@ -321,6 +360,7 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
     scene.remove(root)
     Object.values(geo).forEach((g) => g.dispose())
     Object.values(materials).forEach((m) => m.dispose())
+    wearMaps.forEach((map) => map.dispose())
     for (const m of wallPlaques) m.dispose()
     for (const t of wallTextures) t.dispose()
     for (const child of root.children) {
