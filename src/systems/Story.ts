@@ -53,6 +53,8 @@ export interface GameSnapshot {
   events: ScriptState
   /** Documents the player has actually opened. Old saves migrate this in. */
   readIds: string[]
+  /** Drawer and cabinet save from ContainerLogic. Missing on older saves. */
+  containers?: unknown
 }
 
 export const SPAWN = { x: 6, y: 0, z: 6, yaw: Math.PI / 2 }
