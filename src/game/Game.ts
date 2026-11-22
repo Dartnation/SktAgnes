@@ -17,6 +17,7 @@ import { createTone, doorStartedMoving, RADIO_SOURCE, radioPulse, stepRoomTone a
 import { lineOfSight, overlapsSolid, selectInteract, type InteractCandidate } from '../physics/Collision'
 import { activeColliders, buildWorld, doorBlocksNav, patrolPoints, roomAt, sampleFloorY, type World } from '../world/buildWorld'
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
+import type { SurfaceSet } from '../world/photoSurfaces'
 import { EXIT_DOOR, FLOOR_Y } from '../world/data'
 import { ContainerHost } from './ContainerHost'
 import { Input } from './Input'
@@ -160,7 +161,7 @@ export class Game {
   private readonly bus: GameBus = createBus()
   private rng: Rng = createRng(1)
 
-  constructor(canvas: HTMLCanvasElement, private ui: UI, storage?: StorageLike) {
+  constructor(canvas: HTMLCanvasElement, private ui: UI, storage?: StorageLike, photos?: Map<string, SurfaceSet> | null) {
     this.storage = storage ?? browserStorage()
     this.settings = loadSettings(this.storage)
     const params = new URLSearchParams(location.search)
@@ -193,7 +194,7 @@ export class Game {
     this.scene.add(moon)
 
     this.world = buildWorld()
-    this.built = buildLevel(this.scene, this.world)
+    this.built = buildLevel(this.scene, this.world, photos)
     this.containers = new ContainerHost(this.scene)
     this.monster = new MonsterActor()
     this.scene.add(this.monster.group)
@@ -2287,6 +2288,7 @@ export class Game {
       ready: true,
       introOn: () => game.introTime >= 0,
       seed: () => game.rng.seed,
+      photos: () => game.built.photoSlots,
       signals: () => game.bus.recent(),
       hiding: () => game.hiding,
       face: (yaw: number) => {
@@ -2426,6 +2428,7 @@ declare global {
       ready: boolean
       introOn: () => boolean
       seed: () => number
+      photos: () => number
       signals: () => GameSignal[]
       hiding: () => string | null
       face: (yaw: number) => void

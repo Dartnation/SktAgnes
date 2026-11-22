@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { hashString } from '../core/math'
 import { FLOOR_Y, WALL_H, type RoomDef } from './data'
 import type { DoorInst, LightDef, World } from './buildWorld'
+import { applySurfacePhotos, type SurfaceSet } from './photoSurfaces'
 import { createMaterials, type Materials } from './textures'
 import { addHospitalSetDressing } from './SetDressing'
 import { addVisualV3 } from './VisualV3'
@@ -18,6 +19,7 @@ export interface BuiltWorld {
   secretShelf: THREE.Object3D
   detail: THREE.Object3D[]
   rain: THREE.Points
+  photoSlots: number
   dispose(): void
 }
 
@@ -38,8 +40,9 @@ const WALL_MAT: Record<RoomDef['wallMat'], keyof Materials> = {
   damp: 'damp',
 }
 
-export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
+export function buildLevel(scene: THREE.Scene, world: World, photos?: Map<string, SurfaceSet> | null): BuiltWorld {
   const materials = createMaterials()
+  const photoSlots = photos ? applySurfacePhotos(materials, photos) : 0
   const disposeDressing = addHospitalSetDressing(scene, world.rooms)
   const disposeVisualV3 = addVisualV3(scene, world.rooms)
   const disposeCinematicArtV3 = addCinematicArtV3(scene, world.rooms, world.props)
@@ -424,6 +427,7 @@ export function buildLevel(scene: THREE.Scene, world: World): BuiltWorld {
     secretShelf,
     detail,
     rain,
+    photoSlots,
     dispose() {
       disposeCinematicArtV3()
       disposeVisualV3()

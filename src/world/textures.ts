@@ -458,11 +458,18 @@ export function createMaterials(): Materials {
     eye: new THREE.MeshStandardMaterial({ color: '#200000', emissive: '#ff1a12', emissiveIntensity: 2.4, roughness: 0.3 }),
     monster: new THREE.MeshStandardMaterial({ color: '#0c0b0d', roughness: 0.84, metalness: 0.06 }),
     dispose() {
+      const seen = new Set<THREE.Texture>()
+      const drop = (tex: THREE.Texture | null) => {
+        if (!tex || seen.has(tex)) return
+        seen.add(tex)
+        tex.dispose()
+      }
       for (const m of Object.values(mats)) {
         if (m instanceof THREE.Material) {
           const mat = m as THREE.MeshStandardMaterial
-          mat.map?.dispose()
-          mat.roughnessMap?.dispose()
+          drop(mat.map)
+          drop(mat.roughnessMap)
+          drop(mat.normalMap)
           mat.dispose()
         }
       }
