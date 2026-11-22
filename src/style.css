@@ -186,6 +186,27 @@ h1 {
 }
 #subtitle { bottom: 12%; font-style: italic; letter-spacing: 0.12em; opacity: 0.8; }
 #toast { top: 18%; letter-spacing: 0.16em; font-size: 14px; color: var(--blood); }
+#found {
+  position: fixed;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  pointer-events: none;
+  min-width: 280px;
+  max-width: 460px;
+  padding: 22px 28px 18px;
+  text-align: center;
+  background: rgba(8, 7, 6, 0.82);
+  border: 1px solid rgba(214, 196, 168, 0.35);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+#found.hidden { display: none; }
+#found-kicker { margin: 0; letter-spacing: 0.28em; font-size: 12px; color: #b7a48a; }
+#found-name { margin: 8px 0 6px; font-size: 34px; letter-spacing: 0.08em; font-weight: 500; }
+#found-desc { margin: 0; font-size: 15px; font-style: italic; color: #d9cbb6; }
+#found.important { border-color: rgba(196, 92, 74, 0.7); }
+#found.important #found-name { font-size: 40px; }
 
 #audio-debug {
   position: fixed;

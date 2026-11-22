@@ -1,3 +1,4 @@
+import type { ClosetState } from '../horror/ClosetSequence'
 import { emptyScript } from '../horror/ScriptedEvents'
 import { CATALOG } from './catalog'
 import type { InvSlot } from './Inventory'
@@ -135,6 +136,7 @@ export function migrateSnapshot(raw: unknown): GameSnapshot | null {
       : emptyScript(),
     readIds,
     containers: src.containers && typeof src.containers === 'object' ? src.containers : undefined,
+    closet: restoreCloset(src.closet),
   }
 }
 
@@ -184,4 +186,15 @@ export function latestSave(storage: StorageLike): SaveData | null {
 
 export function deleteSave(storage: StorageLike, slot: number): void {
   storage.removeItem(keyOf(slot))
+}
+
+function restoreCloset(raw: GameSnapshot['closet']): ClosetState | undefined {
+  if (!raw || (raw.phase !== 'inside' && raw.phase !== 'whispers' && raw.phase !== 'idle')) return undefined
+  return {
+    phase: raw.phase,
+    hideId: typeof raw.hideId === 'string' ? raw.hideId : '',
+    locked: Number.isFinite(raw.locked) ? Math.max(0, raw.locked) : 0,
+    whisper: Number.isFinite(raw.whisper) ? Math.max(0, raw.whisper) : 0,
+    screamed: raw.screamed === true,
+  }
 }

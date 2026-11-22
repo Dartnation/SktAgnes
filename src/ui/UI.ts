@@ -193,6 +193,14 @@ export class UI {
     this.q('#toast').textContent = text
   }
 
+  found(name: string, description: string, count: number, important: boolean): void {
+    const card = this.q('#found')
+    card.classList.toggle('hidden', !name)
+    card.classList.toggle('important', important)
+    this.q('#found-name').textContent = count > 1 ? `${name} × ${count}` : name
+    this.q('#found-desc').textContent = description
+  }
+
   audioDebug(text: string, show: boolean): void {
     const el = this.q('#audio-debug')
     el.classList.toggle('hidden', !show)
@@ -312,6 +320,7 @@ const TEMPLATE = `
 </div>
 <div id="subtitle"></div>
 <div id="toast"></div>
+<div id="found" class="hidden"><p id="found-kicker">Fundet</p><h2 id="found-name"></h2><p id="found-desc"></p></div>
 <div id="perf" class="hidden"></div>
 <div id="audio-debug" class="hidden"></div>
 <div id="hud" class="hidden">

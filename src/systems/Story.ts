@@ -1,4 +1,5 @@
 import type { MonsterStateName } from '../ai/MonsterBrain'
+import type { ClosetState } from '../horror/ClosetSequence'
 import { emptyScript, type ScriptState } from '../horror/ScriptedEvents'
 import { FILE_IDS, itemDef } from './catalog'
 import { hasItem, type InvSlot } from './Inventory'
@@ -55,6 +56,8 @@ export interface GameSnapshot {
   readIds: string[]
   /** Drawer and cabinet save from ContainerLogic. Missing on older saves. */
   containers?: unknown
+  /** Locker hide. Missing on older saves, which means the player is not inside. */
+  closet?: ClosetState
 }
 
 export const SPAWN = { x: 6, y: 0, z: 6, yaw: Math.PI / 2 }

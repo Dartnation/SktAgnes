@@ -11,6 +11,7 @@ import { createBus, type GameBus, type GameSignal } from '../core/events'
 import { applyMouseLook, rightFromYaw, type Vec3 } from '../core/math'
 import { createRng, type Rng } from '../core/rng'
 import { flashlightBanishes, pickRelocate } from '../ai/presence'
+import { canLeaveCloset, emptyCloset, enterCloset, leaveCloset, passerAlong, stepCloset, type ClosetState } from '../horror/ClosetSequence'
 import { emptyScript, stepScript } from '../horror/ScriptedEvents'
 import { advanceEpoch, createSchedule, markRecovery, offerSequences, planBeat, stepSchedule, type ScheduleState } from '../horror/Schedule'
 import { createTone, doorStartedMoving, RADIO_SOURCE, radioPulse, stepRoomTone as advanceRoomTone, type ToneState } from '../audio/roomTone'
@@ -85,6 +86,14 @@ export class Game {
   private desired = new Map<string, number>()
   private unlocked = new Set<string>()
   private hiding: string | null = null
+  private closet: ClosetState = emptyCloset()
+  private closetBox: THREE.Group | null = null
+  private closetYaw = 0
+  private whisperSlot = -1
+  private foundT = 0
+  private ambient!: THREE.AmbientLight
+  private hemi!: THREE.HemisphereLight
+  private moon!: THREE.DirectionalLight
   private holdBreath = false
   private cameraEye = EYE_STAND
   private bob = 0
@@ -191,12 +200,12 @@ export class Game {
     this.scene.background = new THREE.Color(0x07060a)
     this.scene.fog = new THREE.FogExp2(0x0a0b0f, 0.028)
     // Keep a trace of moonlight for orientation, but darkness must matter.
-    this.scene.add(new THREE.AmbientLight(0x20262d, 0.028))
-    const hemi = new THREE.HemisphereLight(0x243343, 0x0d0c0b, 0.075)
-    this.scene.add(hemi)
-    const moon = new THREE.DirectionalLight(0x899baa, 0.018)
-    moon.position.set(-20, 40, -10)
-    this.scene.add(moon)
+    this.ambient = new THREE.AmbientLight(0x20262d, 0.028)
+    this.hemi = new THREE.HemisphereLight(0x243343, 0x0d0c0b, 0.075)
+    this.moon = new THREE.DirectionalLight(0x899baa, 0.018)
+    this.moon.position.set(-20, 40, -10)
+    this.scene.add(this.ambient, this.hemi, this.moon)
+    this.closetBox = this.buildClosetBox()
 
     this.world = buildWorld()
     this.built = buildLevel(this.scene, this.world, photos)
@@ -372,6 +381,7 @@ export class Game {
     this.rosaryCd = Math.max(0, this.rosaryCd - dt)
     this.messageT = Math.max(0, this.messageT - dt)
     this.toastT = Math.max(0, this.toastT - dt)
+    this.foundT = Math.max(0, this.foundT - dt)
     this.subtitleT = Math.max(0, this.subtitleT - dt)
     this.damage = Math.max(0, this.damage - dt * 0.8)
     this.noises.length = 0
@@ -388,6 +398,11 @@ export class Game {
     const aimed = applyMouseLook(this.sim.yaw, this.sim.pitch, this.lookSX, this.lookSY, this.settings.invertY)
     this.sim.yaw = aimed.yaw
     this.sim.pitch = aimed.pitch
+    if (this.closet.phase === 'inside') {
+      const turn = Math.atan2(Math.sin(this.sim.yaw - this.closetYaw), Math.cos(this.sim.yaw - this.closetYaw))
+      this.sim.yaw = this.closetYaw + Math.max(-0.42, Math.min(0.42, turn))
+      this.sim.pitch = Math.max(-0.3, Math.min(0.24, this.sim.pitch))
+    }
     const wish = this.input.wish()
     this.holdBreath = !!this.hiding && wish.sprint
 
@@ -437,7 +452,7 @@ export class Game {
     this.placeCamera(wish, dt)
     this.camera.getWorldDirection(this.camDir)
 
-    const allowChase = this.computeChase()
+    const allowChase = this.computeChase() && this.closet.phase !== 'inside'
     if (!this.huntUnlocked()) this.holdGuardianBack()
     const tick = this.monster.update({
       dt,
@@ -486,7 +501,8 @@ export class Game {
     // No footsteps are emitted by the monster: only the player's actual
     // movement generates walking sounds. Monster threats use growls and cues.
 
-    this.monster.group.visible = this.huntUnlocked()
+    this.monster.group.visible = this.huntUnlocked() || passerAlong(this.closet.locked) !== null
+    this.stepCloset(dt)
     if (this.huntUnlocked()) {
       this.herdMonster()
       this.relocateMonster(dt, cols)
@@ -648,6 +664,15 @@ export class Game {
 
   private interact(): void {
     if (this.hiding) {
+      const spot = this.world.hides.find((item) => item.id === this.hiding)
+      if (spot?.kind === 'locker') {
+        if (!canLeaveCloset(this.closet)) {
+          this.say('Du tør ikke åbne endnu...')
+          return
+        }
+        this.exitCloset()
+        return
+      }
       this.hiding = null
       this.bus.emit({ type: 'playerRevealed' })
       this.audio.play('door', this.feet(), { volume: 0.4 })
@@ -728,6 +753,7 @@ export class Game {
     if (mesh) mesh.visible = false
     this.runtime = this.runtime.filter((p) => p.id !== id)
     this.audio.play(found.itemId.startsWith('note') || found.itemId.startsWith('file') ? 'paper' : 'pickup')
+    this.showFound(found.itemId, res.slots.find((slot) => slot.itemId === found.itemId)?.count ?? 1)
     const def = itemDef(found.itemId)
     if (def.kind === 'note' || def.kind === 'story' || def.kind === 'map' || def.kind === 'collectible') this.openExamine(found.itemId)
     if (found.itemId === 'battery') {
@@ -821,11 +847,182 @@ export class Game {
     this.sim.z = spot.z
     this.sim.vx = 0
     this.sim.vz = 0
-    this.audio.play('door', this.feet(), { volume: 0.3 })
-    this.say(spot.kind === 'bed' ? 'Under sengen. Hold Shift for at holde vejret.' : 'I skabet. Hold Shift for at holde vejret. E for at komme ud.')
+    if (spot.kind === 'bed') {
+      this.audio.play('door', this.feet(), { volume: 0.3 })
+      this.say('Under sengen. Hold Shift for at holde vejret.')
+      return
+    }
+    const room = this.world.rooms.find((item) => item.id === spot.room)
+    const mid = room ? room.z + room.d * 0.5 : spot.z + 1
+    this.closetYaw = spot.z < mid ? 0 : Math.PI
+    this.sim.yaw = this.closetYaw
+    this.sim.pitch = 0
+    this.sim.flashlightOn = false
+    this.closet = enterCloset(id)
+    this.whisperSlot = -1
+    this.snap.closet = this.closet
+    this.placeClosetBox(spot.x, spot.z)
+    this.viewmodel.visible = false
+    this.audio.play('door', this.feet(), { volume: 0.45 })
+    this.audio.hush(1.5)
+    this.say('Lågen lukker.')
+  }
+
+  private exitCloset(): void {
+    const spot = this.world.hides.find((item) => item.id === this.closet.hideId)
+    const room = spot ? this.world.rooms.find((item) => item.id === spot.room) : undefined
+    const dir = this.closetYaw === 0 ? 1 : -1
+    if (spot && room) {
+      const y = FLOOR_Y[room.floor]
+      let x = spot.x
+      let z = spot.z + dir * 0.95
+      if (sampleFloorY(this.world, x, z, y) === null) {
+        x = spot.x + 0.4
+        z = spot.z + dir * 0.7
+      }
+      this.sim.x = x
+      this.sim.y = y
+      this.sim.z = z
+    }
+    this.sim.vx = 0
+    this.sim.vz = 0
+    this.hiding = null
+    this.closet = leaveCloset(this.closet)
+    this.whisperSlot = -1
+    this.snap.closet = this.closet
+    if (this.closetBox) this.closetBox.visible = false
+    this.viewmodel.visible = true
+    this.parkAfterCloset(spot?.room)
+    this.bus.emit({ type: 'playerRevealed' })
+    this.audio.play('door', this.feet(), { volume: 0.4 })
+    this.say('Du træder ud.')
+  }
+
+  private stepCloset(dt: number): void {
+    if (this.closet.phase === 'idle') return
+    const stepped = stepCloset(this.closet, this.mode === 'playing' ? dt : 0)
+    this.closet = stepped.state
+    this.snap.closet = this.closet
+    for (const cue of stepped.cues) {
+      if (cue === 'scream') {
+        const at = this.closetMouth()
+        this.audio.play('scream', at, { volume: 0.62 })
+        if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.2)
+      } else if (cue === 'free') {
+        this.say('Du kan åbne lågen.')
+      }
+    }
+    this.driveClosetPasser()
+    if (this.closet.phase === 'inside') {
+      this.sim.flashlightOn = false
+      this.viewmodel.visible = false
+    }
+    if (this.closet.phase === 'whispers') {
+      const slot = Math.floor((10 - this.closet.whisper) / 1.8)
+      if (slot !== this.whisperSlot) {
+        this.whisperSlot = slot
+        const right = rightFromYaw(this.sim.yaw)
+        const side = slot % 2 === 0 ? 1.3 : -1.3
+        this.audio.play('whisper', {
+          x: this.sim.x + right.x * side,
+          y: this.sim.y + 1.5,
+          z: this.sim.z + right.z * side,
+        }, { volume: 0.26 })
+      }
+    }
+  }
+
+  private driveClosetPasser(): void {
+    const along = this.closet.phase === 'inside' ? passerAlong(this.closet.locked) : null
+    if (along === null) {
+      if (this.closet.phase === 'inside' && this.closet.locked >= 16) {
+        const spot = this.world.hides.find((item) => item.id === this.closet.hideId)
+        this.parkAfterCloset(spot?.room)
+      }
+      return
+    }
+    const spot = this.world.hides.find((item) => item.id === this.closet.hideId)
+    const room = spot ? this.world.rooms.find((item) => item.id === spot.room) : undefined
+    if (!spot || !room) return
+    const facing = this.closetYaw === 0 ? 1 : -1
+    const x = spot.x - 1.7 + along * 3.4
+    const z = spot.z + facing * 1.2
+    const y = FLOOR_Y[room.floor]
+    this.monster.pos = { x, y, z }
+    this.monster.group.position.set(x, y, z)
+    this.monster.group.visible = true
+    this.monster.face(Math.PI / 2)
+    this.monster.bb.state = 'Patrol'
+    if (Math.floor(this.closet.locked * 2) !== Math.floor((this.closet.locked - 0.05) * 2)) {
+      this.audio.play('creak', { x, y: y + 0.2, z }, { volume: 0.22 })
+    }
+  }
+
+  private parkAfterCloset(roomId?: string): void {
+    const room = this.world.rooms.find((item) => item.id === roomId)
+    const y = room ? FLOOR_Y[room.floor] : 0
+    const x = room ? room.x + room.w - 1.4 : 46.2
+    const z = room ? room.z + 1.4 : 10.2
+    this.monster.pos = { x, y, z }
+    this.monster.group.position.set(x, y, z)
+    this.monster.bb.state = 'Patrol'
+  }
+
+  private closetMouth(): { x: number; y: number; z: number } {
+    const spot = this.world.hides.find((item) => item.id === this.closet.hideId)
+    const room = spot ? this.world.rooms.find((item) => item.id === spot.room) : undefined
+    const facing = this.closetYaw === 0 ? 1 : -1
+    return {
+      x: spot?.x ?? this.sim.x,
+      y: (room ? FLOOR_Y[room.floor] : this.sim.y) + 1.4,
+      z: (spot?.z ?? this.sim.z) + facing * 1.6,
+    }
+  }
+
+  private placeClosetBox(x: number, z: number): void {
+    if (!this.closetBox) return
+    const room = roomAt(this.world, x, z, this.sim.y)
+    this.closetBox.position.set(x, room ? FLOOR_Y[room.floor] : this.sim.y, z)
+    this.closetBox.rotation.y = this.closetYaw
+    this.closetBox.visible = true
+  }
+
+  private buildClosetBox(): THREE.Group {
+    const g = new THREE.Group()
+    const wood = new THREE.MeshStandardMaterial({ color: '#6a5340', roughness: 0.84, side: THREE.BackSide })
+    const panel = (w: number, h: number, d: number, x: number, y: number, z: number) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wood)
+      mesh.position.set(x, y, z)
+      g.add(mesh)
+    }
+    panel(0.05, 1.9, 0.72, -0.32, 0.95, -0.02)
+    panel(0.05, 1.9, 0.72, 0.32, 0.95, -0.02)
+    panel(0.68, 0.05, 0.72, 0, 1.88, -0.02)
+    panel(0.68, 0.05, 0.72, 0, 0.04, -0.02)
+    panel(0.68, 1.9, 0.05, 0, 0.95, -0.36)
+    panel(0.68, 0.42, 0.04, 0, 1.64, 0.26)
+    panel(0.68, 0.42, 0.04, 0, 0.26, 0.26)
+    const lamp = new THREE.PointLight('#c2a078', 0.45, 1.8, 2)
+    lamp.position.set(0, 1.45, -0.12)
+    g.add(lamp)
+    g.visible = false
+    this.scene.add(g)
+    return g
+  }
+
+  private showFound(itemId: string, count: number): void {
+    const def = itemDef(itemId)
+    const important = def.kind === 'key' || def.kind === 'fuse' || def.kind === 'note' || def.kind === 'story' || def.kind === 'map'
+    this.ui.found(def.name, def.description, count, important)
+    this.foundT = important ? 3.2 : 2.3
   }
 
   private toggleFlash(): void {
+    if (this.closet.phase === 'inside') {
+      this.sim.flashlightOn = false
+      this.say('Lygten bliver i lommen.')
+      return
+    }
     if (this.sim.battery <= 1) {
       this.audio.play('fail')
       this.sim.flashlightOn = false
@@ -905,7 +1102,8 @@ export class Game {
   }
 
   private placeCamera(wish: { sprint: boolean }, dt = 1 / 60): void {
-    const targetEye = this.hiding && this.world.hides.find((h) => h.id === this.hiding)?.kind === 'bed' ? 0.32 : eyeHeight(this.sim.crouching || !!this.hiding)
+    const bed = this.hiding && this.world.hides.find((h) => h.id === this.hiding)?.kind === 'bed'
+    const targetEye = bed ? 0.32 : this.closet.phase === 'inside' ? 1.02 : eyeHeight(this.sim.crouching || !!this.hiding)
     this.cameraEye = dt >= 1 ? targetEye : smoothEyeHeight(this.cameraEye, targetEye, dt)
     const eye = this.cameraEye
     const speed = Math.hypot(this.sim.vx, this.sim.vz)
@@ -1008,7 +1206,9 @@ export class Game {
       }
       if (this.snap.flags.radioOn && entry.def.room === 'personalerum') level *= 1.12
       const shown = this.lampShown.get(entry.def.id)
-      if (shown !== undefined && dt > 0) level = shown + (level - shown) * (1 - Math.exp(-dt * 1.4))
+      const black = this.snap.flags.powerCut && !this.snap.flags.generatorOn
+      if (black) level = 0
+      else if (shown !== undefined && dt > 0) level = shown + (level - shown) * (1 - Math.exp(-dt * 1.4))
       this.lampShown.set(entry.def.id, level)
       if (entry.lens) entry.lens.emissiveIntensity = Math.max(0.012, level * 1.1)
       if (entry.light instanceof THREE.SpotLight || entry.light instanceof THREE.PointLight) {
@@ -1024,6 +1224,10 @@ export class Game {
       entry.light.visible = shown
       if (!shown) entry.light.intensity = 0
     })
+    const black = this.snap.flags.powerCut && !this.snap.flags.generatorOn
+    this.ambient.intensity = black ? 0.004 : 0.028
+    this.hemi.intensity = black ? 0.008 : 0.075
+    this.moon.intensity = black ? 0.004 : 0.018
     const near = ranked.find((entry) => entry.light.visible)
     if (near && playing) {
       const dipped = near.light.intensity < near.base * 0.4
@@ -1032,6 +1236,7 @@ export class Game {
   }
 
   private lightLevel(def: { mode: string }): number {
+    if (this.snap.flags.powerCut && !this.snap.flags.generatorOn) return 0
     if (def.mode === 'power') return this.snap.flags.generatorOn ? 1 : 0
     if (def.mode === 'secret') return this.snap.flags.secretOpen ? 1 : 0
     return 1
@@ -1203,7 +1408,9 @@ export class Game {
     this.ui.hud({
       objective: obj.text,
       files: files ? `Journaler ${files}/${FILE_IDS.length}` : '',
-      prompt: this.messageT > 0 ? this.message : this.hiding ? 'Forlad gemmested' : hit ? hit.prompt : '',
+      prompt: this.messageT > 0 ? this.message : this.closet.phase === 'inside'
+        ? (canLeaveCloset(this.closet) ? 'Åbn lågen' : 'Du tør ikke åbne endnu...')
+        : this.hiding ? 'Forlad gemmested' : hit ? hit.prompt : '',
       stamina: this.sim.stamina,
       battery: this.sim.battery,
       batteryText: `${Math.round(this.sim.battery)}%${batteryBand(this.sim.battery) === 'critical' && this.sim.flashlightOn ? ' · lavt' : ''}`,
@@ -1213,6 +1420,7 @@ export class Game {
     this.ui.hurt(this.damage * 0.85 + (this.sim.health < 35 ? 0.25 : 0))
     this.paintMap()
     this.ui.toast(this.toastT > 0 ? this.toast : '')
+    if (this.foundT <= 0) this.ui.found('', '', 1, false)
     const dbg = this.audio.debug()
     this.ui.audioDebug(
       `Lyd ${dbg.state}  ${dbg.sampleRate} Hz\nStemmer ${dbg.voices}\n${dbg.failures.length ? `FEJL ${dbg.failures.join(' | ')}\n` : ''}${dbg.last.join('\n')}`,
@@ -1262,7 +1470,7 @@ export class Game {
   }
 
   private holdGuardianBack(): void {
-    if (this.huntUnlocked()) return
+    if (this.huntUnlocked() || passerAlong(this.closet.locked) !== null) return
     const nearPlayer = Math.hypot(this.monster.pos.x - this.sim.x, this.monster.pos.z - this.sim.z) < 4
     const outside = this.monster.pos.x < 36 || this.monster.pos.y > 2 || nearPlayer
     if (outside) {
@@ -1333,12 +1541,9 @@ export class Game {
     const paper = itemId.startsWith('note') || itemId.startsWith('file')
     this.audio.play(paper ? 'paper' : itemId.startsWith('key') ? 'key' : 'pickup')
     const def = itemDef(itemId)
+    this.showFound(itemId, res.slots.find((slot) => slot.itemId === itemId)?.count ?? 1)
     if (def.kind === 'note' || def.kind === 'story' || def.kind === 'map' || def.kind === 'collectible') this.openExamine(itemId)
-    if (itemId === 'battery') {
-      this.sim.battery = boostBattery(this.sim.battery, 50)
-      this.say('Batteri. +50%.')
-    } else if (itemId.startsWith('fuse_')) this.say(`${def.name}.`)
-    else if (!paper) this.say(def.name)
+    if (itemId === 'battery') this.sim.battery = boostBattery(this.sim.battery, 50)
     this.bus.emit({ type: 'itemFound', id: itemId })
     this.refreshObjective()
   }
@@ -1414,6 +1619,8 @@ export class Game {
     this.open.clear()
     this.desired.clear()
     this.hiding = null
+    this.closet = emptyCloset()
+    if (this.closetBox) this.closetBox.visible = false
     this.runtime.forEach((p) => p.mesh.visible = false)
     this.runtime = []
     this.containers.reset()
@@ -1447,6 +1654,14 @@ export class Game {
       this.desired.set(id, 1)
     }
     this.hiding = null
+    this.closet = snap.closet?.phase === 'inside' || snap.closet?.phase === 'whispers' ? { ...emptyCloset(), ...snap.closet } : emptyCloset()
+    if (this.closet.phase === 'inside') {
+      this.hiding = this.closet.hideId
+      const spot = this.world.hides.find((item) => item.id === this.closet.hideId)
+      const room = spot ? this.world.rooms.find((item) => item.id === spot.room) : undefined
+      this.closetYaw = spot && room && spot.z >= room.z + room.d * 0.5 ? Math.PI : 0
+      if (spot) this.placeClosetBox(spot.x, spot.z)
+    } else if (this.closetBox) this.closetBox.visible = false
     this.containers.load(snap.containers)
     if (!this.snap.readIds) this.snap.readIds = []
     this.settleLoadedBody()
@@ -2462,6 +2677,8 @@ export class Game {
       photos: () => game.built.photoSlots,
       signals: () => game.bus.recent(),
       hiding: () => game.hiding,
+      closet: () => ({ phase: game.closet.phase, locked: game.closet.locked, whisper: game.closet.whisper }),
+      roomPower: () => game.built.lights.reduce((sum, entry) => sum + entry.light.intensity, 0),
       face: (yaw: number) => {
         game.sim.yaw = yaw
         game.syncView()
@@ -2561,9 +2778,10 @@ export class Game {
         let left = seconds
         while (left > 0.0001) {
           const dt = Math.min(0.05, left)
-          game.advance(dt)
+          if (game.mode === 'playing') game.updatePlaying(dt)
           left -= dt
         }
+        game.render(0.05)
       },
       figure: () => ({
         passer: game.peek.visible,
@@ -2622,6 +2840,8 @@ declare global {
       photos: () => number
       signals: () => GameSignal[]
       hiding: () => string | null
+      closet: () => { phase: string; locked: number; whisper: number }
+      roomPower: () => number
       face: (yaw: number) => void
       gfx: () => { fps: number; calls: number; triangles: number; lights: number; flash: number; face: number }
       lamps: () => number[]
