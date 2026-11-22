@@ -95,7 +95,6 @@ export function offerSequences(ctx: SequenceContext): Omit<PlannedBeat, 'epoch'>
   if (ctx.time >= 25 && ctx.room === 'reception') offer('reception_wake', 'reception')
   const readArchive = ctx.readIds.some((id) => ARCHIVE_READS.has(id) || id.startsWith('file_'))
   if (readArchive && ctx.room === 'arkiv') offer('arkiv_names', 'arkiv')
-  if (ctx.room === 'operationsstue') offer('obduktion_witness', 'operationsstue')
   if (ctx.room === 'obduktion') offer('obduktion_witness', 'obduktion')
   return out
 }

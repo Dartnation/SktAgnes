@@ -49,38 +49,37 @@ describe('relocation', () => {
 })
 
 describe('scripted events', () => {
-  it('fires a room jumpscare once and then never again', () => {
-    const first = stepScript(emptyScript(), {
-      dt: 0.1, time: 10, room: 'operationsstue', prevRoom: 'patientgang', flashlight: true, prevFlash: true, lookedAway: false, atDoor: false,
-    })
-    expect(first.cues).toContain('jump:stue102')
-    const again = stepScript(first.state, {
-      dt: 0.1, time: 12, room: 'operationsstue', prevRoom: 'reception', flashlight: true, prevFlash: true, lookedAway: false, atDoor: false,
-    })
-    expect(again.cues.some((c) => c.startsWith('jump'))).toBe(false)
+  const quiet = { flashlight: false, prevFlash: false, lookedAway: false, atDoor: false }
+
+  it('lets only the door figure into the early rooms, once', () => {
+    const hall = stepScript(emptyScript(), { dt: 0.1, time: 4, room: 'patientgang', prevRoom: 'reception', ...quiet })
+    expect(hall.cues).toEqual(['pass:patient'])
+    const again = stepScript(hall.state, { dt: 0.1, time: 8, room: 'patientgang', prevRoom: 'reception', ...quiet })
+    expect(again.cues).toEqual([])
+    const theatre = stepScript(hall.state, { dt: 0.1, time: 9, room: 'operationsstue', prevRoom: 'patientgang', ...quiet })
+    expect(theatre.cues).toEqual(['pass:operation'])
+    expect(theatre.state.jumps).toEqual(['door_patient', 'door_operation'])
   })
 
-  it('runs the Slagterummet sequence in order', () => {
-    let state = emptyScript()
-    const enter = stepScript(state, {
-      dt: 0.1, time: 1, room: 'slagterum', prevRoom: 'operationsstue', flashlight: true, prevFlash: true, lookedAway: false, atDoor: false,
-    })
-    expect(enter.cues).toContain('silence')
-    state = enter.state
-    let cues: string[] = []
-    for (let i = 0; i < 8; i++) {
-      const step = stepScript(state, {
-        dt: 0.1, time: 2 + i, room: 'slagterum', prevRoom: 'slagterum', flashlight: true, prevFlash: true, lookedAway: false, atDoor: false,
-      })
+  it('keeps the butcher asleep until the lights die, then waits for a look', () => {
+    const walked = stepScript(emptyScript(), { dt: 0.1, time: 1, room: 'slagterum', prevRoom: 'operationsstue', ...quiet })
+    expect(walked.state.slagter).toBe(0)
+    const started = stepScript(emptyScript(), { dt: 0.1, time: 2, room: 'slagterum', prevRoom: 'operationsstue', ...quiet, powerCut: true })
+    let state = started.state
+    let cues = started.cues.slice()
+    for (let i = 0; i < 16; i++) {
+      const step = stepScript(state, { dt: 0.1, time: 3 + i, room: 'slagterum', prevRoom: 'slagterum', ...quiet, powerCut: true })
       state = step.state
       cues = cues.concat(step.cues)
     }
-    expect(cues).toContain('deep')
-    expect(cues).toContain('figure')
-    const gone = stepScript(state, {
-      dt: 0.1, time: 8, room: 'slagterum', prevRoom: 'slagterum', flashlight: false, prevFlash: true, lookedAway: false, atDoor: false,
-    })
-    expect(gone.cues).toContain('hide-figure')
+    expect(cues).toContain('silence')
+    expect(cues).toContain('await-turn')
+    expect(state.slagter).toBe(2)
+    const charge = stepScript(state, { dt: 0.1, time: 6, room: 'slagterum', prevRoom: 'slagterum', ...quiet, powerCut: true, lookingAtFigure: true })
+    expect(charge.cues).toContain('charge')
+    const gone = stepScript(charge.state, { dt: 0.1, time: 7, room: 'slagterum', prevRoom: 'slagterum', ...quiet, powerCut: true, beam: true })
+    expect(gone.cues).toContain('banish')
+    expect(gone.state.slagter).toBe(4)
   })
 })
 

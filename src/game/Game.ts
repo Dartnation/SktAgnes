@@ -132,6 +132,11 @@ export class Game {
   private blackout = 0
   private peekT = 0
   private peekCool = 12
+  private passT = 0
+  private passFrom = new THREE.Vector3()
+  private passTo = new THREE.Vector3()
+  private beamHold = 0
+  private butcherHit = false
   private monsterShown = 0
   private monsterRoom = ''
   private monsterRoomUntil = 0
@@ -223,14 +228,7 @@ export class Game {
     this.butcher = this.buildButcher()
     this.scene.add(this.butcher)
     // V3: a distant featureless shadow instead of a bright cartoon head.
-    this.peek = new THREE.Group()
-    const peekShadow = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.13, 0.26, 3, 8),
-      new THREE.MeshStandardMaterial({ color: '#111215', roughness: 1 }),
-    )
-    peekShadow.position.y = -0.05
-    this.peek.add(peekShadow)
-    this.peek.visible = false
+    this.peek = this.buildPasser()
     this.scene.add(this.peek)
     this.spawnCells = this.world.nav.nodes
       .filter((n) => !n.doorId && !n.stair && n.links.length > 0 && (n.ix + n.iz) % 3 === 0)
@@ -440,6 +438,7 @@ export class Game {
     this.camera.getWorldDirection(this.camDir)
 
     const allowChase = this.computeChase()
+    if (!this.huntUnlocked()) this.holdGuardianBack()
     const tick = this.monster.update({
       dt,
       playerPos: { x: this.sim.x, y: this.sim.y, z: this.sim.z },
@@ -452,7 +451,7 @@ export class Game {
       flashlightOn: this.sim.flashlightOn && this.sim.battery > 0,
       allowChase,
       aggression: this.aggression,
-      waypoints: patrolPoints(this.world, (f) => this.floorAllowed(f), this.snap.flags.secretOpen),
+      waypoints: this.earlyPatrol(patrolPoints(this.world, (f) => this.floorAllowed(f), this.snap.flags.secretOpen)),
       blockers: cols,
       colliders: cols,
       nav: this.world.nav,
@@ -471,15 +470,15 @@ export class Game {
         const door = this.world.doors.find((d) => d.id === id)
         return door ? doorBlocksNav(door, this.unlocked) : false
       },
-      noises: this.noises,
+      noises: this.huntUnlocked() ? this.noises : [],
       searchSpots: this.world.hides.map((hide) => {
         const room = this.world.rooms.find((item) => item.id === hide.room)
         return { id: hide.id, pos: { x: hide.x, y: room ? FLOOR_Y[room.floor] : this.sim.y, z: hide.z } }
       }),
     })
-    if (tick.entered === 'Chase') this.audio.play('growl', this.monster.pos, { volume: 0.8 })
-    if (tick.attack) this.hurt(36, true)
-    if (tick.foundHiding) {
+    if (tick.entered === 'Chase' && this.huntUnlocked()) this.audio.play('growl', this.monster.pos, { volume: 0.8 })
+    if (tick.attack && this.huntUnlocked()) this.hurt(36, true)
+    if (tick.foundHiding && this.huntUnlocked()) {
       this.hiding = null
       this.hurt(28, true)
       this.say('Den fandt dig.')
@@ -487,8 +486,11 @@ export class Game {
     // No footsteps are emitted by the monster: only the player's actual
     // movement generates walking sounds. Monster threats use growls and cues.
 
-    this.herdMonster()
-    this.relocateMonster(dt, cols)
+    this.monster.group.visible = this.huntUnlocked()
+    if (this.huntUnlocked()) {
+      this.herdMonster()
+      this.relocateMonster(dt, cols)
+    }
     this.stepEvents(dt)
     this.stepKnocks()
     this.stepDirector(dt)
@@ -514,7 +516,9 @@ export class Game {
       tookDamage: this.damage > 0.85,
       story: storyProgress(this.snap),
       rng: Math.random,
-      blocked: this.monster.bb.state === 'Attack' || this.lungeT > 0 || this.scares.fx.face > 0,
+      blocked: this.monster.bb.state === 'Attack' || this.lungeT > 0 || this.scares.fx.face > 0
+        || ((this.snap.events?.slagter ?? 0) > 0 && (this.snap.events?.slagter ?? 0) < 4)
+        || (!this.huntUnlocked() && (room?.id === 'patientgang' || room?.id === 'operationsstue')),
     })
     this.director = step.state
     this.aggression = step.aggression
@@ -549,7 +553,9 @@ export class Game {
     this.audio.setZone(this.zoneFor(room?.id))
     this.stepRoomTone(room, dt)
     this.creepIn -= dt
-    if (this.creepIn <= 0 && this.mode === 'playing') {
+    const quietStart = !this.huntUnlocked() && (room?.id === 'patientgang' || room?.id === 'operationsstue')
+    if (quietStart) this.creepIn = 12
+    else if (this.creepIn <= 0 && this.mode === 'playing') {
       this.creepIn = 16 + Math.random() * 18 - this.director.tension * 0.05
       const far = 6 + Math.random() * 6
       const ang = Math.random() * Math.PI * 2
@@ -1244,7 +1250,32 @@ export class Game {
     return true
   }
 
+  private huntUnlocked(): boolean {
+    return (this.snap.events?.slagter ?? 0) >= 4
+  }
+
+  /** Before the butcher sequence, Vogteren stays in that room and does not hunt. */
+  private earlyPatrol(points: { x: number; y: number; z: number }[]): { x: number; y: number; z: number }[] {
+    if (this.huntUnlocked()) return points
+    const kept = points.filter((point) => point.x >= 36 && point.x <= 48 && point.y < 2)
+    return kept.length ? kept : points
+  }
+
+  private holdGuardianBack(): void {
+    if (this.huntUnlocked()) return
+    const nearPlayer = Math.hypot(this.monster.pos.x - this.sim.x, this.monster.pos.z - this.sim.z) < 4
+    const outside = this.monster.pos.x < 36 || this.monster.pos.y > 2 || nearPlayer
+    if (outside) {
+      this.monster.pos = { x: 46.2, y: 0, z: 10.2 }
+      this.monster.group.position.set(46.2, 0, 10.2)
+    }
+    if (this.monster.bb.state === 'Chase' || this.monster.bb.state === 'Attack' || this.monster.bb.state === 'Investigate') {
+      this.monster.bb.state = 'Patrol'
+    }
+  }
+
   private computeChase(): boolean {
+    if (!this.huntUnlocked()) return false
     const dist = this.monsterDist()
     let allow = this.snap.playTime > 46 || hasItem(this.snap.inventory, 'note_code') || dist < 4.2
     if (this.director.suppress > 0 && dist > 2.6) allow = false
@@ -1659,7 +1690,18 @@ export class Game {
     const openAmt = hit && hit.kind === 'door' ? (this.open.get(hit.id) ?? 0) : 0
     const atDoor = !!hit && hit.kind === 'door' && openAmt > 0.55 && hit.id !== EXIT_DOOR
     const fig = this.butcher.position
-    const toFig = new THREE.Vector3(fig.x - this.camera.position.x, 0, fig.z - this.camera.position.z).normalize()
+    const toFig = new THREE.Vector3(fig.x - this.camera.position.x, fig.y + 1.5 - this.camera.position.y, fig.z - this.camera.position.z)
+    const figDist = Math.max(0.001, toFig.length())
+    const lookingAtFigure = (this.camDir.x * toFig.x + this.camDir.y * toFig.y + this.camDir.z * toFig.z) / figDist > 0.62
+    const lamp = this.sim.flashlightOn && this.sim.battery > 0
+    const onFigure = lamp && flashlightBanishes(
+      true,
+      this.eyePos(),
+      { x: this.camDir.x, y: this.camDir.y, z: this.camDir.z },
+      { x: fig.x, y: fig.y + 1.5, z: fig.z },
+      activeColliders(this.world, this.unlocked, this.open),
+    )
+    this.beamHold = onFigure ? this.beamHold + dt : 0
     const lookedAway = this.camDir.x * toFig.x + this.camDir.z * toFig.z < 0.25
     const stepped = stepScript(this.snap.events, {
       dt,
@@ -1670,12 +1712,17 @@ export class Game {
       prevFlash: this.prevFlash,
       lookedAway: this.snap.events.slagter === 2 && lookedAway,
       atDoor,
+      powerCut: this.snap.flags.powerCut,
+      lookingAtFigure: this.snap.events.slagter === 2 && lookingAtFigure,
+      beam: this.snap.events.slagter === 3 && this.beamHold > 0.28,
     })
-    this.maybePeek(hit)
+    if (this.huntUnlocked()) this.maybePeek(hit)
     this.snap.events = stepped.state
     this.prevRoom = room
     this.prevFlash = this.sim.flashlightOn
     for (const cue of stepped.cues) this.fireCue(cue, hit?.id)
+    this.stepPasser(dt)
+    this.stepButcherCharge(dt)
     if (stepped.cues.some((cue) => cue.startsWith('jump') || cue === 'figure')) {
       this.schedule = markRecovery(this.schedule, this.snap.playTime, 20)
       this.director = { ...this.director, suppress: Math.max(this.director.suppress, 6) }
@@ -1753,12 +1800,63 @@ export class Game {
   }
 
   private fireCue(cue: string, doorId?: string): void {
-    if (cue.startsWith('jump:')) {
-      this.lungeT = 2
-      this.lunge.visible = true
-      this.trauma = 1
-      this.audio.play('scream')
-      this.say('Noget var lige foran dig.')
+    if (cue === 'pass:patient') {
+      this.beginPass('door_pat_op', 1.15, 1)
+      this.audio.play('whisper', this.passFrom, { volume: 0.45 })
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.16)
+      return
+    }
+    if (cue === 'pass:operation') {
+      this.beginPass('door_op_slag', 0.72, 0.86)
+      this.audio.play('creak', this.passFrom, { volume: 0.55 })
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.2)
+      return
+    }
+    if (cue === 'archive') {
+      this.passFrom.set(3.1, 4, 9.6)
+      this.passTo.set(8.8, 4, 9.6)
+      this.passT = 1.35
+      this.peek.scale.set(1, 1.05, 1)
+      this.peek.position.copy(this.passFrom)
+      this.peek.visible = true
+      this.audio.play('paper', { x: 6, y: 5, z: 8.4 }, { volume: 0.8 })
+      this.audio.play('whisper', { x: 6, y: 5.4, z: 8.4 }, { volume: 0.5 })
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.28)
+      this.say('Noget bevægede sig mellem reolerne.')
+      return
+    }
+    if (cue === 'blackout') {
+      this.butcher.position.set(42, 0, 2.4)
+      this.butcher.visible = false
+      this.butcherHit = false
+      this.beamHold = 0
+      this.audio.play('metallic', { x: 42, y: 1, z: 6 }, { volume: 0.55 })
+      return
+    }
+    if (cue === 'await-turn') {
+      this.audio.play('deep', { x: 42, y: 1.2, z: 2.4 }, { volume: 0.45 })
+      return
+    }
+    if (cue === 'charge') {
+      this.butcher.visible = true
+      this.butcher.position.set(42, 0, 2.4)
+      this.audio.play('scream', { x: 42, y: 1.6, z: 3 }, { volume: 0.72 })
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.34)
+      return
+    }
+    if (cue === 'banish') {
+      this.butcher.visible = false
+      this.audio.play('whisper', { x: this.butcher.position.x, y: 1.4, z: this.butcher.position.z }, { volume: 0.4 })
+      this.say('Lyset jog den væk.')
+      return
+    }
+    if (cue === 'strike') {
+      if (!this.butcherHit) {
+        this.butcherHit = true
+        this.hurt(18, false)
+      }
+      this.butcher.visible = false
+      this.say('Den ramte dig og var væk.')
       return
     }
     if (cue === 'silence') {
@@ -1886,8 +1984,55 @@ export class Game {
     }
   }
 
+  private beginPass(doorId: string, seconds: number, scale: number): void {
+    const door = this.world.doors.find((item) => item.id === doorId)
+    if (!door) return
+    const y = FLOOR_Y[door.floor]
+    this.desired.set(door.id, 1)
+    this.open.set(door.id, 1)
+    const toward = door.axis === 'x' ? Math.sign(this.sim.x - door.coord) || -1 : Math.sign(this.sim.z - door.coord) || -1
+    if (door.axis === 'x') {
+      const x = door.coord + toward * 0.62
+      this.passFrom.set(x, y, door.center - 0.95)
+      this.passTo.set(x, y, door.center + 0.95)
+    } else {
+      const z = door.coord + toward * 0.62
+      this.passFrom.set(door.center - 0.95, y, z)
+      this.passTo.set(door.center + 0.95, y, z)
+    }
+    this.passT = seconds
+    this.peek.scale.set(scale, scale, scale)
+    this.peek.position.copy(this.passFrom)
+    this.peek.rotation.set(0, Math.atan2(this.passTo.x - this.passFrom.x, this.passTo.z - this.passFrom.z), 0)
+    this.peek.visible = true
+  }
+
+  private stepPasser(dt: number): void {
+    if (this.passT <= 0) return
+    const total = this.peek.scale.y < 0.95 ? 0.72 : this.passFrom.y > 2 ? 1.35 : 1.15
+    const u = 1 - this.passT / total
+    this.peek.position.lerpVectors(this.passFrom, this.passTo, Math.max(0, Math.min(1, u)))
+    this.peek.rotation.set(0, Math.atan2(this.passTo.x - this.passFrom.x, this.passTo.z - this.passFrom.z), 0)
+    this.passT = Math.max(0, this.passT - dt)
+    this.peek.visible = this.passT > 0
+  }
+
+  private stepButcherCharge(dt: number): void {
+    if ((this.snap.events?.slagter ?? 0) !== 3 || !this.butcher.visible) return
+    const dx = this.sim.x - this.butcher.position.x
+    const dz = this.sim.z - this.butcher.position.z
+    const dist = Math.hypot(dx, dz) || 0.001
+    const step = Math.min(dist - 1.7, 5.6 * dt)
+    if (step > 0) {
+      this.butcher.position.x += (dx / dist) * step
+      this.butcher.position.z += (dz / dist) * step
+    }
+    this.butcher.lookAt(this.sim.x, 1.4, this.sim.z)
+    if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.12)
+  }
+
   private maybePeek(hit: { id: string; kind: string } | null): void {
-    if (this.peekT > 0 || this.peekCool > 0 || !hit || hit.kind !== 'door') return
+    if (this.passT > 0 || this.peekT > 0 || this.peekCool > 0 || !hit || hit.kind !== 'door') return
     if (Math.hypot(this.sim.vx, this.sim.vz) > 0.4) return
     if (Math.random() > 0.012) return
     const door = this.world.doors.find((d) => d.id === hit.id)
@@ -1911,12 +2056,13 @@ export class Game {
   private stepPower(dt: number): void {
     if (!this.snap.flags.powerCut && this.snap.playTime >= 120) {
       this.snap.flags.powerCut = true
-      this.blackout = 3.6
-      this.fade = 1
+      this.blackout = 0.8
+      this.fade = 0.92
       this.sim.flashlightOn = false
       this.sim.x = 42
       this.sim.y = 0
       this.sim.z = 8
+      this.sim.yaw = 0
       this.sim.vx = 0
       this.sim.vz = 0
       this.sim.vy = 0
@@ -1925,7 +2071,7 @@ export class Game {
     }
     if (this.blackout > 0) {
       this.blackout = Math.max(0, this.blackout - dt)
-      this.fade = 1
+      this.fade = this.blackout / 0.8
     }
     this.peekCool = Math.max(0, this.peekCool - dt)
     if (this.peekT > 0) {
@@ -2032,6 +2178,31 @@ export class Game {
     g.position.set(0, -0.16, -0.7)
     g.visible = false
     g.renderOrder = 20
+    return g
+  }
+
+  private buildPasser(): THREE.Group {
+    const g = new THREE.Group()
+    const cloth = new THREE.MeshStandardMaterial({ color: '#1c1916', roughness: 0.78 })
+    const gown = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.46, 1.25, 8), cloth)
+    gown.position.y = 0.72
+    gown.castShadow = true
+    g.add(gown)
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.38, 4, 8), cloth)
+    torso.position.y = 1.28
+    torso.castShadow = true
+    g.add(torso)
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), cloth)
+    head.scale.set(0.86, 1.18, 0.8)
+    head.position.y = 1.74
+    g.add(head)
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.46, 3, 6), cloth)
+      arm.position.set(side * 0.3, 1.16, 0.02)
+      arm.rotation.z = side * 0.22
+      g.add(arm)
+    }
+    g.visible = false
     return g
   }
 
@@ -2382,6 +2553,26 @@ export class Game {
       audioLog: () => game.audio.trace.slice(),
       monsterHidden: () => game.monster.concealed,
       events: () => game.snap.events,
+      advance: (seconds: number) => {
+        if (game.testMode) game.snap.playTime += seconds
+      },
+      tick: (seconds: number) => {
+        if (!game.testMode) return
+        let left = seconds
+        while (left > 0.0001) {
+          const dt = Math.min(0.05, left)
+          game.advance(dt)
+          left -= dt
+        }
+      },
+      figure: () => ({
+        passer: game.peek.visible,
+        passerX: game.peek.position.x,
+        passerZ: game.peek.position.z,
+        butcher: game.butcher.visible,
+        butcherX: game.butcher.position.x,
+        butcherZ: game.butcher.position.z,
+      }),
       emptyLight: () => {
         game.sim.battery = 0.15
       },
@@ -2462,6 +2653,9 @@ declare global {
       audioLog: () => string[]
       monsterHidden: () => boolean
       events: () => GameSnapshot['events']
+      advance: (seconds: number) => void
+      tick: (seconds: number) => void
+      figure: () => { passer: boolean; passerX: number; passerZ: number; butcher: boolean; butcherX: number; butcherZ: number }
       emptyLight: () => void
       ping: (kind: string) => void
       probe: (ms: number) => Promise<{ peak: number; jumps: number; state: string }>
