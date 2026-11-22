@@ -26,19 +26,21 @@ export function buildContainerRig(place: PlacedContainer): ContainerRig {
 }
 
 function drawer(spec: ContainerSpec, root: THREE.Group): ContainerRig {
-  const shell = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.24, 0.42), wood)
-  shell.position.z = -0.16
+  const shell = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.24, 0.46), wood)
+  shell.position.z = -0.2
   const mover = new THREE.Group()
-  const box = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.16, 0.4), face)
-  const inside = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.03, 0.26), cavity)
-  inside.position.y = 0.07
-  const left = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.08, 0.28), wood)
-  left.position.set(-0.28, 0.08, 0)
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.14, 0.36), face)
+  const front = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.16, 0.02), face)
+  front.position.z = 0.18
+  const inside = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.02, 0.24), cavity)
+  inside.position.set(0, 0.05, 0.02)
+  const left = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.08, 0.3), wood)
+  left.position.set(-0.3, 0.06, 0)
   const right = left.clone()
-  right.position.x = 0.28
-  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.025, 0.03), metal)
-  handle.position.set(0, 0.02, 0.21)
-  mover.add(box, inside, left, right, handle)
+  right.position.x = 0.3
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.018, 0.02), metal)
+  handle.position.set(0, 0, 0.198)
+  mover.add(box, front, inside, left, right, handle)
   if (spec.contents.length) {
     const sheet = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.012, 0.16), paper)
     sheet.name = 'loot'

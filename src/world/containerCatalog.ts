@@ -167,9 +167,9 @@ export const CONTAINERS: PlacedContainer[] = [
       roomId: 'observation',
       kind: 'drawer',
       contents: [],
-      slideDistance: 0.18,
+      slideDistance: 0.32,
     },
-    x: 30, z: 2.85, y: 0.62, yaw: 0,
+    x: 30, z: 2.48, y: 0.46, yaw: 0,
   },
   {
     spec: {

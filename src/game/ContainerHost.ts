@@ -70,7 +70,7 @@ export class ContainerHost {
         x: at.x,
         y: at.y,
         z: at.z,
-        radius: 0.36,
+        radius: 0.72,
         prompt: promptFor(place, state),
       }
     })
@@ -118,11 +118,11 @@ export class ContainerHost {
 
 function frontOf(place: PlacedContainer): { x: number; y: number; z: number } {
   const room = ROOMS.find((item) => item.id === place.spec.roomId)
-  const reach = 0.46
+  const face = 0.16
   return {
-    x: place.x + Math.sin(place.yaw) * reach,
-    y: (room ? FLOOR_Y[room.floor] : 0) + Math.max(place.y, 0.95),
-    z: place.z + Math.cos(place.yaw) * reach,
+    x: place.x + Math.sin(place.yaw) * face,
+    y: (room ? FLOOR_Y[room.floor] : 0) + place.y,
+    z: place.z + Math.cos(place.yaw) * face,
   }
 }
 
