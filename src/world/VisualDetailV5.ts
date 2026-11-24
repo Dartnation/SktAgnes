@@ -132,7 +132,12 @@ export function addVisualDetailV5(
   for (const p of props) {
     // A high-fidelity scan is the entire visible prop. Do not overlay
     // procedural drawer handles, trays, wheels or folders into the new GLTF.
-    if (scannedAssetId(p.id)) continue
+    if (scannedAssetId(p.id)) {
+      // This area is detailed by a real scanned mesh, not a procedural overlay.
+      seenRooms.add(p.room)
+      anchorCount++
+      continue
+    }
     const height = p.h
     const surface = height + 0.016
     switch (p.kind) {
