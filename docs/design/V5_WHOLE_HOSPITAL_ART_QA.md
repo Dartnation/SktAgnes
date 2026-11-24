@@ -59,17 +59,26 @@ For each area: same-lens before/after screenshots from at least two angles at no
 - Record FPS/draw calls and flag asset costs before considering a merge.
 - No merge to main without explicit user approval.
 
-## Professional asset upgrade, separate from this current procedural pass
+## Actual CC0 scanned model integration – completed in code, visual review pending
 
-Realism cannot be reached by merely adding cylinders and cuboids. The next material milestone must import vetted **real-world GLB/glTF scan-quality assets** from known, commercially permitted sources, with attribution and technical metadata and optimized textures.
+Nine 1K models were downloaded through the official Poly Haven API using strict HTTPS host checks, official file-size/MD5 verification, per-file SHA256 manifests, and complete glTF `.bin`/image dependencies. All files ship locally in `public/models/polyhaven`, so the game never fetches remote content during play.
 
-Initial CC0 candidates:
-- Poly Haven Wheelchair 01 – https://polyhaven.com/a/wheelchair_01 – patient corridor model replacement
-- Poly Haven Vintage Crutches 01 – https://polyhaven.com/a/vintage_crutches_01 – patient corridors / storage
+**Visually mounted via `ScannedAssetsV5.ts` and the current LevelBuilder:**
+- [wheelchair_01](https://polyhaven.com/a/wheelchair_01): original patient-corridor wheelchair (`pat_wheelchair`)
+- [vintage_wooden_drawer_01](https://polyhaven.com/a/vintage_wooden_drawer_01): reception/archives static record cabinets (`rec_records`, `ark_records`)
+- [steel_frame_shelves_01](https://polyhaven.com/a/steel_frame_shelves_01): actual metal shelves (`op_sparecase`, `slag_shelf`, `kael_shelf`)
+- [tool_cart](https://polyhaven.com/a/tool_cart): technical equipment trolleys (`slag_cart`, `lab_cart`, `kael_cart`)
+- [utility_box_01](https://polyhaven.com/a/utility_box_01): industrial service cabinet (`kael_spares`)
+- [desk_lamp_arm_01](https://polyhaven.com/a/desk_lamp_arm_01): authentic scanned reception desk lamp
+- [vintage_crutches_01](https://polyhaven.com/a/vintage_crutches_01): period crutches in the patient corridor
+- [hanging_industrial_lamp](https://polyhaven.com/a/hanging_industrial_lamp): real pendant model on all three stair levels, **no new gameplay light**
+- [vintage_flashlight](https://polyhaven.com/a/vintage_flashlight): textured handheld torch scan. Procedural hand and the real flashlight spotlight/battery logic unchanged.
 
-These were researched but are **not yet downloaded or integrated**. Official public Poly Haven API supports fetching dependencies and lists CC0 content. For GLTF use full dependency set; never assume single .gltf is complete. No commercial purchase or extra paid model-generation requested.
+Existing procedural furniture is retained as a **fallback** if an optional glTF does not load. Interactions, collision footprints, saves, AI, script triggers and gameplay IDs are untouched. Scanned meshes are fitted to existing art anchors and can be fine-tuned after browser screenshot review. The current GLB/glTF scans are textured models but do not create new scripted drawer animation, and still need visual clearance checks.
 
-For all model replacements: licencing record, triangulation/polycount, true scale, pivot alignment, lightmap/material validation, interactive hitbox unchanged, screenshot review, rollback. Source links alone DO NOT mean an asset is in the game.
+**Licensing:** model entries are Poly Haven CC0 (source, metadata, license, hash references in `public/models/polyhaven/asset-manifest.json`). No purchase.
+
+**Unfinished:** licensed rigged monster replacement, photographic replacements for *all* existing procedural furniture, audited browser screenshots of all 16 rooms, full performance benchmarking and local port5196 activation. A code build/test result does not verify visual appearance.
 
 ## Staged scope
 
