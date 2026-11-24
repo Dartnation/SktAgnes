@@ -197,6 +197,17 @@ export function paintMinimap(ctx: CanvasRenderingContext2D, w: number, h: number
   ctx.textBaseline = 'top'
   ctx.fillStyle = '#d6c3a5'
   ctx.fillText('ETAGE ' + (state.floor + 1), 10, 7)
+  // Use a single readable room title in the header instead of squeezing
+  // 4+ impossible labels across the 220px compact minimap.
+  const current = projected.rooms.find((room) => room.here)
+  const currentName = state.rooms.find((room) => room.id === current?.id)?.name
+  if (currentName) {
+    ctx.textAlign = 'right'
+    ctx.font = '500 ' + Math.max(9, font - 1) + 'px Georgia,serif'
+    ctx.fillStyle = '#c8ae8e'
+    ctx.fillText(currentName.toUpperCase(), w - 10, 7, Math.max(30, w * 0.58))
+    ctx.textAlign = 'left'
+  }
   ctx.fillStyle = '#a48161'
   ctx.fillRect(10, font + 10, Math.min(w - 20, 46), 1)
 
@@ -213,7 +224,15 @@ export function paintMinimap(ctx: CanvasRenderingContext2D, w: number, h: number
       ctx.fillStyle = '#c9987b'
       ctx.fillRect(x + 2, y + 2, Math.min(rw - 4, 3), Math.max(0, rh - 4))
     }
-    if (rw < 12 || rh < 13) continue
+    // Compact map: tiny cells carry shape and the player's marker, not
+    // ellipsised room names that run into the neighbouring cell.
+    if ((w < 360 && rw < 75) || rw < 12 || rh < 13) {
+      if (room.known && !room.here && rw > 12 && rh > 12) {
+        ctx.fillStyle = 'rgba(223,202,173,0.26)'
+        ctx.fillRect(x + rw / 2 - 1.2, y + rh * 0.40 - 1.2, 2.4, 2.4)
+      }
+      continue
+    }
     ctx.save()
     // Never paint a room label over a neighbouring room.
     ctx.beginPath()
