@@ -159,6 +159,58 @@ export function mountScannedDecorV5(
   }
 }
 
+/**
+ * The existing first-person arm remains in place. Only the primitive torch
+ * housing is replaced, after a verified local scanned glTF has loaded.
+ * No change to flashlight spotlight, battery, interaction or camera movement.
+ */
+export function replaceCameraFlashlightV5(root: THREE.Group, housing: THREE.Group): void {
+  loader.load(
+    '/models/polyhaven/vintage_flashlight/vintage_flashlight_1k.gltf',
+    (gltf) => {
+      if (!root.parent) { disposeAsset(gltf.scene); return }
+      const model = gltf.scene
+      const before = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3())
+      if (![before.x, before.y, before.z].every(v => Number.isFinite(v) && v > 0.001)) {
+        disposeAsset(model)
+        return
+      }
+      // The scan may be authored along any axis. Align its longest axis to
+      // the camera torch's -Z direction before aspect-preserving scale.
+      if (before.x > before.y && before.x > before.z) model.rotation.y = Math.PI / 2
+      else if (before.y > before.x && before.y > before.z) model.rotation.x = Math.PI / 2
+      const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3())
+      const fit = Math.min(0.32 / size.z, 0.087 / size.x, 0.087 / size.y)
+      if (!Number.isFinite(fit) || fit <= 0) { disposeAsset(model); return }
+      model.scale.multiplyScalar(fit)
+      const fitted = new THREE.Box3().setFromObject(model)
+      const center = fitted.getCenter(new THREE.Vector3())
+      model.position.sub(center)
+      model.position.z -= 0.022
+      model.traverse(obj => {
+        if (!(obj instanceof THREE.Mesh)) return
+        obj.frustumCulled = false
+        obj.renderOrder = 3
+        // Keep scanned texture maps; only show hand-held geometry in front
+        // of level geometry, matching existing viewmodel presentation.
+        const list = Array.isArray(obj.material) ? obj.material : [obj.material]
+        const adapted = list.map(mat => {
+          const next = mat.clone()
+          next.depthTest = false
+          next.depthWrite = false
+          next.needsUpdate = true
+          return next
+        })
+        obj.material = Array.isArray(obj.material) ? adapted : adapted[0]
+      })
+      root.add(model)
+      housing.visible = false
+    },
+    undefined,
+    err => { console.warn('Optional CC0 hand torch unavailable; preserving old torch:', err) },
+  )
+}
+
 function disposeAsset(group: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>()
   const materials = new Set<THREE.Material>()
