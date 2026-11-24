@@ -728,15 +728,37 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
       }
       return parts
     }
-    case 'locker':
-      return [
-        part(w, h, d, 0, 0, 0, 'metal'),
-        part(w * 0.92, 0.055, 0.025, 0, h * 0.92, d / 2, 'trim'),
-        part(w * 0.92, 0.055, 0.025, 0, h * 0.14, d / 2, 'trim'),
-        part(0.04, h * 0.76, 0.03, -w * 0.035, h * 0.15, d / 2, 'trim'),
-        part(0.025, 0.16, 0.05, w * 0.27, h * 0.51, d / 2, 'trim'),
-        ...[-0.3, -0.18, -0.06].map(k => part(w * 0.56, 0.021, 0.027, -w * 0.03, h * (0.81 + k), d / 2, 'trim')),
+    case 'locker': {
+      // 1980s stamped-steel wardrobe, double-sided so it reads correctly from
+      // either end of the corridor. Hiding interactions remain unchanged.
+      const parts: Part[] = [
+        part(w * 0.97, h * 0.94, d * 0.96, 0, 0.025, 0, 'metal'),
+        part(w, h * 0.03, d, 0, h * 0.97, 0, 'trim'),
+        part(w * 0.98, 0.055, d * 0.98, 0, 0.008, 0, 'trim'),
       ]
+      for (const front of [-1, 1]) {
+        const z = front * d * 0.491
+        parts.push(
+          part(w * 0.88, h * 0.82, 0.019, 0, 0.075, z, 'trim'),
+          part(w * 0.81, h * 0.75, 0.018, 0, 0.105, z + front * 0.013, 'metal'),
+          part(w * 0.76, h * 0.025, 0.019, 0, h * 0.76, z + front * 0.028, 'trim'),
+          part(w * 0.76, h * 0.025, 0.019, 0, h * 0.2, z + front * 0.028, 'trim'),
+          part(0.03, h * 0.14, 0.031, w * 0.23, h * 0.47, z + front * 0.045, 'stone'),
+        )
+        for (const yy of [0.72, 0.79, 0.86]) {
+          for (let i = 0; i < 4; i++) {
+            parts.push(part(w * 0.12, 0.010, 0.009,
+              w * (-0.29 + i * 0.19), h * yy,
+              z + front * 0.044, 'monster'))
+          }
+        }
+        for (const y of [0.12, 0.50, 0.88]) {
+          parts.push(detailedPart(new THREE.CylinderGeometry(0.013, 0.013, 0.05, 8),
+            'trim', w * 0.465, h * y, z + front * 0.034))
+        }
+      }
+      return parts
+    }
     case 'recordcabinet':
       // Three visually distinct drawer fronts, with recessed borders and brass labels.
       // Their state is intentionally static until Cursor wires interaction.
@@ -789,8 +811,32 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
         ]),
         part(w * 0.83, 0.032, 0.20, 0, 0.30, -d * 0.12, 'wood'),
       ]
-    case 'altar':
-      return [part(w, h, d, 0, 0, 0, 'stone'), part(0.08, 0.35, 0.08, -0.3, h, 0, 'trim')]
+    case 'altar': {
+      // Stone-faced altar with a linen runner, relief pilasters, candleholders
+      // and a carved wooden crucifix, all within the existing interaction area.
+      const parts: Part[] = [
+        part(w, h * 0.78, d * 0.91, 0, 0.05, 0, 'stone'),
+        part(w * 1.06, 0.10, d * 1.12, 0, h - 0.10, 0, 'stone'),
+        part(w * 0.96, 0.025, d * 0.54, 0, h + 0.005, 0, 'fabric'),
+        part(w * 0.92, 0.055, d, 0, 0.012, 0, 'trim'),
+        ...[-1, 1].map(k =>
+          part(w * 0.13, h * 0.58, d * 0.12, k * w * 0.38, 0.105,
+            -d * 0.34, 'trim')),
+        part(w * 0.18, h * 0.36, 0.022, 0, h * 0.36, -d * 0.478, 'trim'),
+        part(w * 0.36, h * 0.055, 0.024, 0, h * 0.54, -d * 0.491, 'trim'),
+        part(0.09, 0.45, 0.06, 0, h + 0.025, 0, 'wood'),
+        part(0.31, 0.063, 0.065, 0, h + 0.27, 0, 'wood'),
+      ]
+      for (const k of [-1, 1]) {
+        parts.push(
+          detailedPart(new THREE.CylinderGeometry(0.048, 0.061, 0.05, 12),
+            'trim', k * w * 0.36, h + 0.034, 0),
+          detailedPart(new THREE.CylinderGeometry(0.025, 0.028, 0.16, 9),
+            'stone', k * w * 0.36, h + 0.135, 0),
+        )
+      }
+      return parts
+    }
     case 'sofa':
       return [
         part(w, 0.28, d, 0, 0.26, 0, 'fabric'),
