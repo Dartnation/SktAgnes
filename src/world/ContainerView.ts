@@ -51,7 +51,21 @@ export function buildContainerRig(place: PlacedContainer): ContainerRig {
   root.name = 'VisualContainer_' + place.spec.id
   root.position.set(place.x, floor + place.y, place.z)
   root.rotation.y = place.yaw
-  if (place.spec.kind === 'drawer') return drawer(place.spec, root)
+  if (place.spec.kind === 'drawer') {
+    // Standalone modules need a physical carcass reaching the room floor.
+    // Keep interaction anchors and the moving tray unchanged.
+    const base = place.y - 0.113
+    if (base > 0.04) {
+      const metal = /file|med|labor|ark_|obd_|safe/.test(place.spec.id)
+      const mat = metal ? enamel : timber
+      for (const side of [-1, 1]) {
+        block(root, mat, side * 0.354, -0.113 - base / 2, -0.20, 0.045, base, 0.45)
+      }
+      block(root, mat, 0, -place.y + 0.035, -0.20, 0.76, 0.07, 0.45)
+      block(root, recess, 0, -0.113 - base / 2, -0.42, 0.68, base, 0.025)
+    }
+    return drawer(place.spec, root)
+  }
   return cabinet(root, place.spec.id)
 }
 
