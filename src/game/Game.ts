@@ -2444,26 +2444,64 @@ export class Game {
   }
 
   private buildPasser(): THREE.Group {
+    // A silent, fleeting hospital apparition. The game still owns precisely
+    // when, where and how it crosses a doorway; this is appearance only.
     const g = new THREE.Group()
-    const cloth = new THREE.MeshStandardMaterial({ color: '#1c1916', roughness: 0.78 })
-    const gown = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.46, 1.25, 8), cloth)
-    gown.position.y = 0.72
-    gown.castShadow = true
-    g.add(gown)
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.38, 4, 8), cloth)
-    torso.position.y = 1.28
-    torso.castShadow = true
-    g.add(torso)
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), cloth)
-    head.scale.set(0.86, 1.18, 0.8)
-    head.position.y = 1.74
-    g.add(head)
-    for (const side of [-1, 1]) {
-      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.46, 3, 6), cloth)
-      arm.position.set(side * 0.3, 1.16, 0.02)
-      arm.rotation.z = side * 0.22
-      g.add(arm)
+    const gownMat = new THREE.MeshStandardMaterial({
+      color: '#282927', roughness: 0.96, side: THREE.DoubleSide,
+    })
+    const seamMat = new THREE.MeshStandardMaterial({
+      color: '#544f47', roughness: 0.98, side: THREE.DoubleSide,
+    })
+    const voidMat = new THREE.MeshStandardMaterial({ color: '#0e1011', roughness: 1 })
+    const bandageMat = new THREE.MeshStandardMaterial({
+      color: '#555047', roughness: 0.97, side: THREE.DoubleSide,
+    })
+    const shadowMesh = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+      const mesh = new THREE.Mesh(geo, mat)
+      mesh.position.set(x, y, z)
+      mesh.castShadow = true
+      g.add(mesh)
+      return mesh
     }
+    // Uneven layered garment with an interrupted silhouette instead of a cone.
+    const coat = new THREE.CylinderGeometry(0.245, 0.405, 1.36, 18, 8, true)
+    const pos = coat.getAttribute('position') as THREE.BufferAttribute
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i)
+      const uneven = 1 + 0.052 * Math.sin(i * 1.43) + 0.036 * Math.sin(i * 3.3)
+      pos.setXYZ(i, x * uneven, y + (y < -0.46 ? 0.066 * Math.sin(i * 0.61) : 0), z * uneven)
+    }
+    coat.computeVertexNormals()
+    shadowMesh(coat, gownMat, 0, 0.80, 0)
+    const torso = shadowMesh(new THREE.CapsuleGeometry(0.17, 0.33, 5, 12), gownMat, 0, 1.37, 0)
+    torso.scale.set(1.17, 1, 0.84)
+    // Shoulder-length, frayed seam strips make the outline distinct in low light.
+    for (const side of [-1, 1]) {
+      const sleeve = shadowMesh(new THREE.CylinderGeometry(0.086, 0.125, 0.75, 10, 3, true),
+        gownMat, side * 0.27, 1.12, 0)
+      sleeve.rotation.z = side * -0.13
+      const hand = shadowMesh(new THREE.SphereGeometry(0.064, 9, 7), voidMat, side * 0.30, 0.72, 0.015)
+      hand.scale.set(0.78, 1.25, 0.68)
+      const seam = shadowMesh(new THREE.PlaneGeometry(0.045, 0.72), seamMat, side * 0.205, 1.06, 0.11)
+      seam.rotation.z = side * 0.08
+      const shoe = shadowMesh(new THREE.BoxGeometry(0.22, 0.11, 0.35), voidMat, side * 0.16, 0.085, 0.105)
+      shoe.rotation.y = side * 0.10
+    }
+    // Dense hood with no white face or bright pupils.
+    const faceVoid = shadowMesh(new THREE.SphereGeometry(0.123, 15, 12), voidMat, 0, 1.75, 0.098)
+    faceVoid.scale.set(0.87, 1.28, 0.48)
+    const hood = shadowMesh(new THREE.SphereGeometry(0.19, 17, 12, 0, Math.PI * 2, 0, Math.PI * 0.76),
+      gownMat, 0, 1.83, -0.025)
+    hood.scale.set(1.06, 1.16, 0.93)
+    for (let i = 0; i < 4; i++) {
+      const bandage = shadowMesh(new THREE.PlaneGeometry(0.275, 0.052), bandageMat,
+        0.005 * (i % 2 ? 1 : -1), 1.84 - i * 0.065, 0.160)
+      bandage.rotation.z = -0.12 + i * 0.06
+    }
+    // Deep veil hanging from the left cheek, visible in silhouette when it crosses.
+    const veil = shadowMesh(new THREE.PlaneGeometry(0.21, 0.62, 2, 3), gownMat, -0.14, 1.49, 0.045)
+    veil.rotation.z = -0.14
     g.visible = false
     return g
   }
