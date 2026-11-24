@@ -3,6 +3,7 @@ import type { SaveData } from '../systems/SaveSystem'
 import type { ItemDef } from '../systems/catalog'
 import type { EndingId } from '../systems/Story'
 import { endingCopy } from '../systems/Story'
+import { itemArtwork } from './ItemArtwork'
 
 export interface UIHooks {
   newGame: () => void
@@ -198,6 +199,7 @@ export class UI {
     card.classList.toggle('hidden', !name)
     card.classList.toggle('important', important)
     this.q('#found-name').textContent = count > 1 ? `${name} × ${count}` : name
+    this.q('#found-art').innerHTML = name ? itemArtwork(name) : ''
     this.q('#found-desc').textContent = description
   }
 
@@ -264,7 +266,13 @@ export class UI {
       const btn = document.createElement('button')
       btn.className = 'inv-item' + (i === index ? ' on' : '')
       if (i === index) btn.setAttribute('aria-current', 'true')
-      btn.textContent = item.count > 1 ? `${item.name} ×${item.count}` : item.name
+      const art = document.createElement('span')
+      art.className = 'item-art'
+      art.innerHTML = itemArtwork(item.name)
+      const label = document.createElement('span')
+      label.className = 'item-name'
+      label.textContent = item.count > 1 ? `${item.name} ×${item.count}` : item.name
+      btn.append(art, label)
       btn.addEventListener('click', () => this.hooks.selectItem(i))
       list.appendChild(btn)
     })
@@ -320,7 +328,7 @@ const TEMPLATE = `
 </div>
 <div id="subtitle"></div>
 <div id="toast"></div>
-<div id="found" class="hidden"><p id="found-kicker">Fundet</p><h2 id="found-name"></h2><p id="found-desc"></p></div>
+<div id="found" class="hidden"><div id="found-art" aria-hidden="true"></div><p id="found-kicker">Fundet</p><h2 id="found-name"></h2><p id="found-desc"></p></div>
 <div id="perf" class="hidden"></div>
 <div id="audio-debug" class="hidden"></div>
 <div id="hud" class="hidden">
