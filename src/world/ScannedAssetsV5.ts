@@ -99,6 +99,66 @@ export function mountScannedAssetV5(
   }
 }
 
+/**
+ * Mount a purely decorative hero object at an authored world anchor.
+ * This never hides/changes collision props, lighting, interactive entities or AI.
+ * Its position is the lowest point of the scanned asset, ideal for lamps/floor props.
+ */
+export function mountScannedDecorV5(
+  scene: THREE.Scene,
+  assetId: string,
+  position: THREE.Vector3,
+  bounds: { width: number; height: number; depth: number },
+  yaw = 0,
+): () => void {
+  if (!/^[a-z0-9_]+$/.test(assetId)) throw new Error('Invalid CC0 asset ID')
+  let disposed = false
+  let mounted: THREE.Group | null = null
+  loader.load(
+    '/models/polyhaven/' + assetId + '/' + assetId + '_1k.gltf',
+    (gltf) => {
+      const model = gltf.scene
+      if (disposed) { disposeAsset(model); return }
+      const box = new THREE.Box3().setFromObject(model)
+      const size = box.getSize(new THREE.Vector3())
+      const fit = 0.94 * Math.min(
+        bounds.width / size.x, bounds.height / size.y, bounds.depth / size.z,
+      )
+      if (![size.x, size.y, size.z, fit].every(x => Number.isFinite(x) && x > 0.0001)) {
+        disposeAsset(model)
+        return
+      }
+      model.scale.multiplyScalar(fit)
+      const fitted = new THREE.Box3().setFromObject(model)
+      const center = fitted.getCenter(new THREE.Vector3())
+      model.position.sub(new THREE.Vector3(center.x, fitted.min.y, center.z))
+      const anchor = new THREE.Group()
+      anchor.name = 'PolyHaven_VisualDecor_' + assetId
+      anchor.position.copy(position)
+      anchor.rotation.y = yaw
+      anchor.add(model)
+      anchor.traverse(obj => {
+        if (obj instanceof THREE.Mesh) {
+          obj.castShadow = true
+          obj.receiveShadow = true
+        }
+      })
+      scene.add(anchor)
+      mounted = anchor
+    },
+    undefined,
+    error => { console.warn('CC0 visual decoration was unavailable:', assetId, error) },
+  )
+  return () => {
+    disposed = true
+    if (mounted) {
+      scene.remove(mounted)
+      disposeAsset(mounted)
+      mounted = null
+    }
+  }
+}
+
 function disposeAsset(group: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>()
   const materials = new Set<THREE.Material>()
