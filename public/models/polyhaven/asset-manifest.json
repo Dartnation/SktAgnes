@@ -37,5 +37,85 @@
       "textures/vintage_flashlight_arm_1k.jpg": "5183d389859b02f5bb6d89b3869792020e3177e04a11866923e535c72373a03d",
       "vintage_flashlight.bin": "76996acb00365d5c0ff237711459c8871c56eea483568bfad73f24c08271a880"
     }
+  },
+  {
+    "id": "steel_frame_shelves_01",
+    "source": "https://polyhaven.com/a/steel_frame_shelves_01",
+    "license": "CC0",
+    "resolution": "1k",
+    "hashes": {
+      "steel_frame_shelves_01_1k.gltf": "4eff8994825d654e337f8dc425e959ed6add7f4773188c87ba64402d9edd9842",
+      "textures/steel_frame_shelves_01_diff_1k.jpg": "85e205b334e15e05bec9b02be1258da6ab949ae908aa57e0bee6b94ba45b4415",
+      "textures/steel_frame_shelves_01_nor_gl_1k.jpg": "2a67ed7dd4f53c3e225396e6381992b768fe58b5261be703d540678e366e46ed",
+      "textures/steel_frame_shelves_01_arm_1k.jpg": "858629eeaa8f68ddb4fc1a813afe6ed988ded3d6d49184ec45a14611760f0bb3",
+      "steel_frame_shelves_01.bin": "306d7e72d12a5d3047b8a189f8d0add51075eaf7f51f935286fda4e1c16dd066"
+    }
+  },
+  {
+    "id": "tool_cart",
+    "source": "https://polyhaven.com/a/tool_cart",
+    "license": "CC0",
+    "resolution": "1k",
+    "hashes": {
+      "tool_cart_1k.gltf": "ba4290f62b37dc08d4f99da2b3c78d8cb584bd229e8805ce586ed3f3b5303759",
+      "textures/tool_cart_nor_gl_1k.jpg": "fa995e77eacad81c78f650e28a6d4c1c7b9d6c74a3f314d5f5ebdddf6de510fc",
+      "textures/tool_cart_diff_1k.jpg": "3a3e18efa54d18f2d01ad51cb40f8edd9af76e054a6a9c21324bc14fe49be965",
+      "textures/tool_cart_arm_1k.jpg": "2b928779ab242468c90e6074ab72567bc58ecf3e0240fd709e4507b59764aef7",
+      "tool_cart.bin": "3962637a4faec733b10d9970bfeea6696a48b6fd361fda085cc3d122138f6aaa"
+    }
+  },
+  {
+    "id": "utility_box_01",
+    "source": "https://polyhaven.com/a/utility_box_01",
+    "license": "CC0",
+    "resolution": "1k",
+    "hashes": {
+      "utility_box_01_1k.gltf": "5b9f8c45f2640c9dd831dc3450529e45b24c987208ddcf73010fe717ce8c454e",
+      "textures/utility_box_01_diff_1k.jpg": "6a703a4cdf20c3fc3d0400fa815e5a1834836c96c207bdb57ba9e4a5db3a5532",
+      "textures/utility_box_01_nor_gl_1k.jpg": "1c4e377906c13e864c9c7ffbd31a7d86075f28b948bf54872d6ad3ab38a08124",
+      "textures/utility_box_01_arm_1k.jpg": "e65428774e94b6a8aeb7a23802e0af8f1568952ea79e21a7a3475b957e34956b",
+      "utility_box_01.bin": "e4249eb754d7802154eed36bb12070dc24c90fc331f355d60ef7570d61fc0f5c"
+    }
+  },
+  {
+    "id": "hanging_industrial_lamp",
+    "source": "https://polyhaven.com/a/hanging_industrial_lamp",
+    "license": "CC0",
+    "resolution": "1k",
+    "hashes": {
+      "hanging_industrial_lamp_1k.gltf": "97e31aac7c350bc40294e78f39f66d5aa998ac2703be1d09b5dab9ae7027876f",
+      "textures/hanging_industrial_lamp_emissive_1k.jpg": "ebf7fed3b0c1d6104d91b77195c7eb0e3da6927562ec4a612700b8afd7574099",
+      "textures/hanging_industrial_lamp_nor_gl_1k.jpg": "ef524876a1a4c5b6d7fb4c652d21e55474ee85b50b8896537fd60e82b288b5f0",
+      "textures/hanging_industrial_lamp_diff_1k.jpg": "22cafeccd4421495c860f8c522bb9e45eaa19fda6ec3a2365dcb5b1db66aad96",
+      "textures/hanging_industrial_lamp_arm_1k.jpg": "888d78437900b43874af5195694c7b867568c9a96ef528846ad7d001f9e096ae",
+      "textures/hanging_industrial_lamp_glass_nor_gl_1k.jpg": "5393af7d78e85689cba7c7b198fafddcee540d3125ebd133799d56f19945d8bf",
+      "hanging_industrial_lamp.bin": "12e8293535e816f1e8bebc94e95da092599909d3c1b9b6cc7384d90307db06ca"
+    }
+  },
+  {
+    "id": "desk_lamp_arm_01",
+    "source": "https://polyhaven.com/a/desk_lamp_arm_01",
+    "license": "CC0",
+    "resolution": "1k",
+    "hashes": {
+      "desk_lamp_arm_01_1k.gltf": "2ac8389afc1519449a9cfdf7efd9fa36780a2177bb47ab58f7a7dda7d247dc8c",
+      "textures/desk_lamp_arm_01_nor_gl_1k.jpg": "feefedc3835ecef3634e97a24977451671f8f57747a023f48cd14c84bc73513a",
+      "textures/desk_lamp_arm_01_arm_1k.jpg": "206404c79fb7dcf8e2c4558c13544342f87d2190526231a1750c3c9adc256fbc",
+      "textures/desk_lamp_arm_01_diff_1k.jpg": "159eb178aba3271bd555cbe07ca36431d8af9a006f0b8e9d8c67030cbdc9e4d3",
+      "desk_lamp_arm_01.bin": "07f34e32abecbaa63d28b9d12d6a0eb82b775a0f50c92327655909d72ff8489b"
+    }
+  },
+  {
+    "id": "vintage_crutches_01",
+    "source": "https://polyhaven.com/a/vintage_crutches_01",
+    "license": "CC0",
+    "resolution": "1k",
+    "hashes": {
+      "vintage_crutches_01_1k.gltf": "1f63263b83d9984ba5f2bafd7792758c551a306a5c905fdf25d76ebc45431889",
+      "textures/vintage_crutches_01_nor_gl_1k.jpg": "6944c1775255c840d361b630d88c6525a59a68742403bf1173ebeee7f26f7746",
+      "vintage_crutches_01.bin": "36b9bc2ff50d6a5e56927b49b5eee3c03a1e8ef7679476e772c79d747c2978ae",
+      "textures/vintage_crutches_01_arm_1k.jpg": "fd4c7143a94690696814d948ff25b3242a3907874cf2a195d74414ee6e20308b",
+      "textures/vintage_crutches_01_diff_1k.jpg": "1faf3f099e69b7ca1387462177c9c10df94fbea55491118de53f0be271db6fe3"
+    }
   }
 ]
