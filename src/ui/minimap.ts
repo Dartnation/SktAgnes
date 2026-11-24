@@ -165,54 +165,126 @@ function layout(state: MiniState, shown: MiniRoom[], minX: number, minZ: number,
   }
 }
 
-/** Draw the current floor. Secret rooms stay blank until they have been visited. */
+/** Visual-only cartographic styling. Projection and fog-of-war stay unchanged. */
 export function paintMinimap(ctx: CanvasRenderingContext2D, w: number, h: number, state: MiniState): void {
   const projected = projectForSize(state, w, h)
   ctx.clearRect(0, 0, w, h)
-  ctx.fillStyle = 'rgba(8,7,8,0.72)'
+  const ink = '#d8c6ad'
+  const inset = Math.max(3, w * 0.016)
+  const grid = Math.max(13, Math.round(w / 15))
+  const paper = ctx.createLinearGradient(0, 0, w, h)
+  paper.addColorStop(0, '#1c2021')
+  paper.addColorStop(0.55, '#121719')
+  paper.addColorStop(1, '#0a0c0e')
+  ctx.fillStyle = paper
   ctx.fillRect(0, 0, w, h)
-  ctx.fillStyle = '#cbbba4'
-  ctx.font = `${Math.max(11, Math.round(w / 20))}px Georgia, serif`
-  ctx.fillText(`Etage ${state.floor + 1}`, 8, Math.max(14, Math.round(h / 11)))
-  for (const room of projected.rooms) {
-    ctx.fillStyle = room.here ? 'rgba(120,40,36,0.85)' : room.known ? 'rgba(60,52,48,0.9)' : 'rgba(28,26,28,0.9)'
-    ctx.fillRect(room.x, room.y, room.w, room.h)
-    ctx.strokeStyle = 'rgba(210,196,176,0.35)'
-    ctx.strokeRect(room.x + 0.5, room.y + 0.5, room.w - 1, room.h - 1)
-    ctx.fillStyle = room.known ? '#e7dcc7' : '#8a8178'
-    ctx.font = `${Math.max(10, Math.round(w / 22))}px Georgia, serif`
-    ctx.fillText(room.label, room.x + 4, room.y + Math.max(14, room.h * 0.28))
+  // The fine drafting grid provides orientation without changing disclosure.
+  ctx.lineWidth = 0.5
+  ctx.strokeStyle = 'rgba(182,163,135,0.075)'
+  for (let x = grid; x < w; x += grid) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke()
   }
+  for (let y = grid; y < h; y += grid) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke()
+  }
+  ctx.strokeStyle = 'rgba(202,184,155,0.33)'
+  ctx.lineWidth = 1
+  ctx.strokeRect(inset, inset, w - inset * 2, h - inset * 2)
+
+  // Header is intentionally small and does not cover any room data.
+  const font = Math.max(10, Math.min(14, Math.round(w / 21)))
+  ctx.font = '600 ' + font + 'px Georgia, serif'
+  ctx.textBaseline = 'top'
+  ctx.fillStyle = '#d6c3a5'
+  ctx.fillText('ETAGE ' + (state.floor + 1), 10, 7)
+  ctx.fillStyle = '#a48161'
+  ctx.fillRect(10, font + 10, Math.min(w - 20, 46), 1)
+
+  for (const room of projected.rooms) {
+    const x = room.x, y = room.y, rw = room.w, rh = room.h
+    if (rw <= 0 || rh <= 0) continue
+    const fill = room.here ? '#512d2c' : room.known ? '#373836' : '#202224'
+    ctx.fillStyle = fill
+    ctx.fillRect(x, y, rw, rh)
+    ctx.strokeStyle = room.here ? '#d3a07d' : room.known ? '#8f8c81' : '#53534d'
+    ctx.lineWidth = room.here ? 1.8 : 1.1
+    ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, rw - 1), Math.max(0, rh - 1))
+    if (room.here) {
+      ctx.fillStyle = '#c9987b'
+      ctx.fillRect(x + 2, y + 2, Math.min(rw - 4, 3), Math.max(0, rh - 4))
+    }
+    if (rw < 12 || rh < 13) continue
+    ctx.save()
+    // Never paint a room label over a neighbouring room.
+    ctx.beginPath()
+    ctx.rect(x + 2, y + 2, Math.max(0, rw - 4), Math.max(0, rh - 4))
+    ctx.clip()
+    const labelFont = Math.min(13, Math.max(9, Math.round(w / 25)))
+    ctx.font = '500 ' + labelFont + 'px Georgia, serif'
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'center'
+    ctx.fillStyle = room.known ? (room.here ? '#f3e2cc' : ink) : '#9f9688'
+    let label = room.label
+    const maxWidth = Math.max(2, rw - 11)
+    while (label.length > 2 && ctx.measureText(label).width > maxWidth) {
+      label = label.slice(0, -2) + '…'
+    }
+    if (ctx.measureText(label).width <= maxWidth) {
+      ctx.fillText(label, x + rw / 2, y + rh * 0.40)
+    }
+    ctx.restore()
+  }
+
   for (const door of projected.doors) {
-    ctx.fillStyle = door.locked ? '#8d4a3a' : '#d7cbb6'
-    ctx.fillRect(door.x - 3, door.y - 1.5, 6, 3)
+    ctx.fillStyle = door.locked ? '#bc7158' : '#c5bbab'
+    ctx.fillRect(door.x - 2.6, door.y - 2.6, 5.2, 5.2)
+    if (door.locked) {
+      ctx.strokeStyle = '#321b18'
+      ctx.strokeRect(door.x - 3.3, door.y - 3.3, 6.6, 6.6)
+    }
   }
   for (const goal of projected.goals) {
-    ctx.strokeStyle = '#e7dcc7'
+    ctx.strokeStyle = '#e0c089'
+    ctx.lineWidth = 1.5
     ctx.beginPath()
     ctx.arc(goal.x, goal.y, 5, 0, Math.PI * 2)
     ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(goal.x - 8, goal.y)
+    ctx.lineTo(goal.x - 5, goal.y)
+    ctx.moveTo(goal.x + 5, goal.y)
+    ctx.lineTo(goal.x + 8, goal.y)
+    ctx.stroke()
   }
   for (const cell of projected.batteries) {
-    ctx.fillStyle = '#d7c27a'
-    ctx.fillRect(cell.x - 2, cell.y - 2, 4, 4)
+    ctx.fillStyle = '#d5c27e'
+    ctx.fillRect(cell.x - 2, cell.y - 3, 4, 6)
   }
   if (projected.monster) {
-    ctx.fillStyle = '#ff3b32'
+    ctx.fillStyle = '#d77465'
     ctx.beginPath()
-    ctx.arc(projected.monster.x, projected.monster.y, 4, 0, Math.PI * 2)
+    ctx.arc(projected.monster.x, projected.monster.y, 3.2, 0, Math.PI * 2)
     ctx.fill()
+    ctx.strokeStyle = '#ffad93'
+    ctx.beginPath()
+    ctx.arc(projected.monster.x, projected.monster.y, 6.5, 0, Math.PI * 2)
+    ctx.stroke()
   }
+  // Crisp direction mark; orientation is driven by the unchanged player yaw.
   ctx.save()
   ctx.translate(projected.player.x, projected.player.y)
   ctx.rotate(-projected.player.yaw)
-  ctx.fillStyle = '#f4efe6'
+  ctx.fillStyle = '#f5e8d1'
+  ctx.strokeStyle = '#141719'
+  ctx.lineWidth = 1
   ctx.beginPath()
-  ctx.moveTo(0, 7)
-  ctx.lineTo(4, -4)
-  ctx.lineTo(-4, -4)
+  ctx.moveTo(0, 8)
+  ctx.lineTo(5.0, -5)
+  ctx.lineTo(0, -2)
+  ctx.lineTo(-5.0, -5)
   ctx.closePath()
   ctx.fill()
+  ctx.stroke()
   ctx.restore()
 }
 
@@ -221,10 +293,9 @@ function projectForSize(state: MiniState, w: number, h: number): MapLayout {
   if (w === 220 && h === 150) return base
   const scaleX = w / 220
   const scaleY = h / 150
-  const scale = Math.min(scaleX, scaleY)
-  const map = <T extends { x: number; y: number }>(point: T): T => ({ ...point, x: point.x * scaleX, y: point.y * scaleY })
+    const map = <T extends { x: number; y: number }>(point: T): T => ({ ...point, x: point.x * scaleX, y: point.y * scaleY })
   return {
-    rooms: base.rooms.map((room) => ({ ...room, x: room.x * scaleX, y: room.y * scaleY, w: room.w * scale, h: room.h * scale })),
+    rooms: base.rooms.map((room) => ({ ...room, x: room.x * scaleX, y: room.y * scaleY, w: room.w * scaleX, h: room.h * scaleY })),
     doors: base.doors.map(map),
     goals: base.goals.map(map),
     batteries: base.batteries.map(map),
