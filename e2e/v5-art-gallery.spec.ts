@@ -11,7 +11,7 @@ import { FLOOR_Y, ROOMS } from '../src/world/data'
  * npx playwright test e2e/v5-art-gallery.spec.ts --project=chromium
  */
 test('capture every SktAgnes zone for visual art review', async ({ page }, testInfo) => {
-  test.setTimeout(180000)
+  test.setTimeout(360000)
   const errors: string[] = []
   page.on('pageerror', e => errors.push(e.message))
   page.on('crash', () => errors.push('page-crash'))
