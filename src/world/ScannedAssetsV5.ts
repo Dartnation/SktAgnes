@@ -11,6 +11,13 @@ const ASSETS: Record<string, string> = {
   pat_wheelchair: 'wheelchair_01',
   rec_records: 'vintage_wooden_drawer_01',
   ark_records: 'vintage_wooden_drawer_01',
+  op_sparecase: 'steel_frame_shelves_01',
+  slag_shelf: 'steel_frame_shelves_01',
+  kael_shelf: 'steel_frame_shelves_01',
+  slag_cart: 'tool_cart',
+  lab_cart: 'tool_cart',
+  kael_cart: 'tool_cart',
+  kael_spares: 'utility_box_01',
 }
 const loader = new GLTFLoader()
 
