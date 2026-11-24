@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { FLOOR_Y, type PropDef, type RoomDef } from './data'
+import { FLOOR_Y, WALL_H, type PropDef, type RoomDef } from './data'
 
 /**
  * V3 cinematic art pass: curated world-space detail, not game logic.
@@ -201,6 +201,24 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
   }
   for (const r of rooms) {
     if (r.outdoors) continue
+    // Architectural dressing uses the rear/front wall strips, well away from
+    // all inter-room doorways (which sit in the X-side walls near z≈6).
+    // These are visual, non-colliding details – no changes to world.props.
+    const skirting: Finish = r.wallMat === 'panel' ? 'oak' : r.wallMat === 'brick' ? 'iron' : 'paint'
+    for (const z of [0.155, r.d - 0.155]) {
+      b(r, skirting, r.w * 0.5, 0.13, z, r.w - 0.42, 0.22, 0.066)
+      b(r, 'shadow', r.w * 0.5, 0.25, z + (z < r.d * 0.5 ? 0.01 : -0.01),
+        r.w - 0.42, 0.017, 0.07)
+      // Slender moulding breaks up bare walls without manufacturing props.
+      b(r, skirting, r.w * 0.5, WALL_H - 0.13, z,
+        r.w - 0.40, 0.14, 0.11)
+      b(r, 'shadow', r.w * 0.5, WALL_H - 0.21, z,
+        r.w - 0.42, 0.022, 0.08)
+    }
+    // A muted wall plate on the side of each doorway; not an interactable.
+    b(r, 'iron', 0.15, 1.36, 5.05, 0.043, 0.23, 0.155)
+    b(r, 'porcelain', 0.175, 1.39, 5.05, 0.024, 0.115, 0.063)
+    b(r, 'shadow', 0.192, 1.405, 5.05, 0.009, 0.044, 0.022)
     // All additional geometry stays at walls, above tables or inside existing furniture.
     // Never obstruct central door approach (z ~ 6) with decorative objects.
     const x = r.w - 0.95
