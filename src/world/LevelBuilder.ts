@@ -673,22 +673,61 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
       return parts
     }
     case 'desk':
-    case 'table':
-      return [
-        part(w, 0.08, d, 0, h - 0.08, 0, 'wood'),
-        part(0.08, h - 0.08, 0.08, -w / 2 + 0.08, 0, -d / 2 + 0.08, 'wood'),
-        part(0.08, h - 0.08, 0.08, w / 2 - 0.08, 0, -d / 2 + 0.08, 'wood'),
-        part(0.08, h - 0.08, 0.08, -w / 2 + 0.08, 0, d / 2 - 0.08, 'wood'),
-        part(0.08, h - 0.08, 0.08, w / 2 - 0.08, 0, d / 2 - 0.08, 'wood'),
+    case 'table': {
+      // Period workbench: steel apron, visible frame, real tabletop edge and
+      // a cross-braced undercarriage. Same collision footprint.
+      const result: Part[] = [
+        part(w, 0.076, d, 0, h - 0.076, 0, 'wood'),
+        part(w * 0.97, 0.016, d * 0.98, 0, h - 0.012, 0, 'trim'),
+        part(w - 0.13, 0.10, 0.043, 0, h - 0.20, -d * 0.42, 'metal'),
+        part(w - 0.13, 0.10, 0.043, 0, h - 0.20, d * 0.42, 'metal'),
+        part(0.045, 0.12, d * 0.80, -w * 0.42, h - 0.21, 0, 'metal'),
+        part(0.045, 0.12, d * 0.80, w * 0.42, h - 0.21, 0, 'metal'),
+        part(w * 0.76, 0.038, d * 0.48, 0, 0.21, 0, 'metal'),
       ]
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        const x = sx * (w / 2 - 0.09), z = sz * (d / 2 - 0.08)
+        result.push(
+          part(0.07, h - 0.10, 0.07, x, 0, z, 'metal'),
+          part(0.11, 0.025, 0.11, x, 0.005, z, 'trim'),
+        )
+      }
+      return result
+    }
     case 'shelf':
-    case 'bookshelf':
-      return [
-        part(w, h, 0.06, 0, 0, -d / 2, 'wood'),
-        part(w, 0.05, d, 0, 0.15, 0, 'wood'),
-        part(w, 0.05, d, 0, h * 0.45, 0, 'wood'),
-        part(w, 0.05, d, 0, h * 0.75, 0, 'wood'),
+    case 'bookshelf': {
+      // Every shelf has a back frame, exposed ends, adjustable shelves and
+      // mixed-size records. The room's z axis is often the long shelf axis.
+      const parts: Part[] = [
+        part(w * 0.90, h * 0.94, 0.035, 0, 0.08, -d * 0.47, 'wood'),
+        part(w * 0.90, 0.06, d, 0, h - 0.06, 0, 'trim'),
+        part(w * 0.90, 0.06, d, 0, 0.035, 0, 'trim'),
+        ...[-1, 1].map(side =>
+          part(w * 0.87, h, 0.038, 0, 0, side * (d / 2 - 0.024), 'wood')),
       ]
+      const shelfLevels = [0.24, 0.47, 0.70, 0.91]
+      for (const level of shelfLevels) {
+        parts.push(part(w * 0.94, 0.039, d * 0.96, 0, h * level, 0, 'wood'))
+      }
+      // Binders, folders and slim spines remain inside the shelf envelope.
+      for (let level = 0; level < shelfLevels.length - 1; level++) {
+        const y0 = h * shelfLevels[level] + 0.045
+        const top = h * shelfLevels[level + 1] - 0.037
+        for (let i = 0; i < 17; i++) {
+          if ((i * 7 + level * 3) % 13 === 0) continue
+          const z = -d * 0.42 + (i / 16) * d * 0.84
+          const height = Math.max(0.05, (top - y0) * (0.67 + (i % 5) * 0.058))
+          parts.push(part(w * (0.34 + (i % 3) * 0.055), height,
+            Math.min(0.045, d * 0.034),
+            w * 0.03, y0, z, i % 4 === 0 ? 'fabric' : i % 5 === 0 ? 'trim' : 'wood'))
+          if (i % 3 === 1) {
+            parts.push(part(0.006, 0.012, 0.021, w * 0.27,
+              y0 + Math.max(0.008, height * 0.62), z, 'stone'))
+          }
+        }
+      }
+      return parts
+    }
     case 'locker':
       return [
         part(w, h, d, 0, 0, 0, 'metal'),
