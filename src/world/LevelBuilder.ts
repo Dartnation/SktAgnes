@@ -9,6 +9,7 @@ import { addHospitalSetDressing } from './SetDressing'
 import { addVisualV3 } from './VisualV3'
 import { addCinematicArtV3 } from './CinematicArtV3'
 import { addVisualIdentityV4 } from './VisualIdentityV4'
+import { addVisualDetailV5 } from './VisualDetailV5'
 
 export interface BuiltWorld {
   materials: Materials
@@ -48,6 +49,7 @@ export function buildLevel(scene: THREE.Scene, world: World, photos?: Map<string
   const disposeVisualV3 = addVisualV3(scene, world.rooms)
   const disposeCinematicArtV3 = addCinematicArtV3(scene, world.rooms, world.props)
   const disposeVisualIdentityV4 = addVisualIdentityV4(scene, world.rooms)
+  const disposeVisualDetailV5 = addVisualDetailV5(scene, world.rooms, world.props)
   const buckets = new Map<string, THREE.BufferGeometry[]>()
   const push = (key: string, geo: THREE.BufferGeometry) => {
     const list = buckets.get(key) ?? []
@@ -431,6 +433,7 @@ export function buildLevel(scene: THREE.Scene, world: World, photos?: Map<string
     rain,
     photoSlots,
     dispose() {
+      disposeVisualDetailV5()
       disposeVisualIdentityV4()
       disposeCinematicArtV3()
       disposeVisualV3()
