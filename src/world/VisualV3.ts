@@ -118,7 +118,7 @@ export function addVisualV3(scene: THREE.Scene, rooms: RoomDef[]): () => void {
         binder(r, 3.52, 0.84, 9.25, 5)
         P(r, 'cylinder', 'porcelain', 4.86, 0.98, 9.70, 0.15, 0.20, 0.15)
         P(r, 'torus', 'porcelain', 4.97, 1.00, 9.70, 0.095, 0.095, 0.095)
-        clock(r, 5.3, 0.25)
+        clock(r, 6.45, 0.18)
         indicator(r, 9.48, 1.48, 9.56)
         box(r, 'paper', 9.33, 1.07, 9.38, 0.38, 0.025, 0.30)
         break
@@ -133,14 +133,14 @@ export function addVisualV3(scene: THREE.Scene, rooms: RoomDef[]): () => void {
         break
       case 'operationsstue':
         // Surgical light and stainless instruments, not a second operating table.
-        P(r, 'cylinder', 'rust', 6.1, 3.12, 8.6, 0.05, 0.6, 0.05)
-        P(r, 'cylinder', 'enamel', 6.1, 2.74, 8.6, 0.97, 0.14, 0.97)
-        P(r, 'cylinder', 'glow', 6.1, 2.65, 8.6, 0.62, 0.023, 0.62)
+        P(r, 'cylinder', 'rust', 9.2, 3.12, 8.15, 0.05, 0.6, 0.05)
+        P(r, 'cylinder', 'enamel', 9.2, 2.74, 8.15, 0.97, 0.14, 0.97)
+        P(r, 'cylinder', 'glow', 9.2, 2.65, 8.15, 0.62, 0.023, 0.62)
         for (let i = 0; i < 5; i++) {
           box(r, 'rust', 8.88 + i * 0.105, 0.98, 2.07, 0.025, 0.025, 0.3, i * 0.06)
         }
-        jar(r, 3.45, 0.95, 9.2)
-        binder(r, 6.35, 0.92, 9.0, 3)
+        jar(r, 2.1, 0.95, 10.45)
+        binder(r, 9.15, 0.92, 8.15, 3)
         break
       case 'slagterum':
         for (let i = 0; i < 5; i++) {
@@ -205,15 +205,12 @@ export function addVisualV3(scene: THREE.Scene, rooms: RoomDef[]): () => void {
         box(r, 'rust', 6.4, 1.4, 0.21, 0.65, 0.48, 0.10)
         break
       case 'observation':
-        // One-way observation panel and restraints on existing gurney.
-        box(r, 'rust', 5.3, 1.72, 0.18, 1.42, 0.94, 0.07)
-        box(r, 'glass', 5.3, 1.72, 0.245, 1.29, 0.79, 0.018)
+        // The window is a framed pane built in LevelBuilder, not a flat plate.
         indicator(r, 7.5, 1.0, 2.15)
         for (let i = 0; i < 3; i++) box(r, 'cloth', 9.08, 0.98, 9.05 + i * 0.20, 0.48, 0.06, 0.07)
         break
       case 'kammer':
-        // Last patient bed and abandoned file, avoiding the exit threshold.
-        for (let i = 0; i < 3; i++) box(r, 'cloth', 4.05 + i * 0.45, 0.51, 9.10, 0.11, 0.08, 0.75)
+        // The bed itself is the furniture. Cloth bars here cut through the mattress.
         binder(r, 2.1, 1.29, 2.05, 6)
         box(r, 'rust', 9.60, 1.49, 0.23, 0.65, 0.83, 0.1)
         indicator(r, 1.6, 1.1, 2.25)
@@ -225,9 +222,8 @@ export function addVisualV3(scene: THREE.Scene, rooms: RoomDef[]): () => void {
         box(r, 'paper', 1.2, 1.7, 0.22, 0.7, 0.43, 0.04)
         break
       case 'stilhed':
-        box(r, 'rust', 6, 1.48, 5.68, 2.3, 2.7, 0.22)
-        box(r, 'brass', 6.9, 1.35, 5.52, 0.19, 0.37, 0.10)
-        box(r, 'ink', 6, 2.5, 5.50, 0.94, 0.09, 0.04)
+        // The opening itself is the exit vista. A solid rust slab read as a brown wall.
+        box(r, 'brass', 6.9, 1.35, 5.52, 0.12, 0.28, 0.06)
         break
     }
   }

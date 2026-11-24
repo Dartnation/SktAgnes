@@ -1,0 +1,21 @@
+name: V5 Official CC0 Asset Metadata Probe
+on:
+  push:
+    branches:
+      - design/v5-cinematic-complete-pass
+    paths:
+      - scripts/v5-probe-licensed-models.mjs
+      - .github/workflows/v5-asset-probe.yml
+
+permissions:
+  contents: read
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/v5-probe-licensed-models.mjs

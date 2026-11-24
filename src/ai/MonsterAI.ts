@@ -3,6 +3,7 @@ import { angDiff, forwardFromYaw, type Vec3 } from '../core/math'
 import { findPath, type NavGrid, type PathQuery } from './Pathfinding'
 import { createMonsterBB, stepMonster, type MonsterBB, type MonsterStateName } from './MonsterBrain'
 import { beamEffect, bodyLean, clipForState } from './MonsterAnim'
+import { decorateMonsterV5 } from './MonsterLookV5'
 import { approximateHearing, beamHits, canHear, hearingScale, inVisionCone, noiseLoudness, type NoiseKind } from './senses'
 import { resolveMovement, type AABB } from '../physics/Collision'
 import type { DoorInst } from '../world/buildWorld'
@@ -65,6 +66,8 @@ export class MonsterActor {
   private armR: THREE.Object3D | null = null
   private foreL: THREE.Object3D | null = null
   private foreR: THREE.Object3D | null = null
+  private smile: THREE.Object3D | null = null
+  private faceLamp: THREE.PointLight | null = null
   private checked = new Set<string>()
   private glide = 0
   private watch = 0
@@ -73,13 +76,16 @@ export class MonsterActor {
   private beamImmune = 0
   /** Beam is on the body: mesh, shadow and attacks are off until it relocates. */
   concealed = false
+  /** Closet pass owns the body. The hunter does not move or attack. */
+  scripted = false
+  scriptWalk = 0
 
   constructor() {
-    const skin = new THREE.MeshStandardMaterial({ color: '#353332', roughness: 0.94, metalness: 0.01 })
-    const pale = new THREE.MeshStandardMaterial({ color: '#232525', roughness: 0.99, metalness: 0 })
+    const skin = new THREE.MeshStandardMaterial({ color: '#1a1817', roughness: 0.96, metalness: 0.01 })
+    const pale = new THREE.MeshStandardMaterial({ color: '#0e0d0c', roughness: 0.99, metalness: 0 })
     const dark = new THREE.MeshStandardMaterial({ color: '#100c0c', roughness: 0.45 })
         const ink = new THREE.MeshStandardMaterial({ color: '#1a1412', roughness: 0.5 })
-    const agedCloth = new THREE.MeshStandardMaterial({ color: '#373a37', roughness: 1, side: THREE.DoubleSide })
+    const agedCloth = new THREE.MeshStandardMaterial({ color: '#141311', roughness: 1, side: THREE.DoubleSide })
     const blood = new THREE.MeshStandardMaterial({ color: '#321e20', roughness: 0.98 })
     const bone = new THREE.MeshStandardMaterial({ color: '#5d5953', roughness: 0.98 })
 
@@ -177,12 +183,59 @@ export class MonsterActor {
       suture.rotation.z = i % 2 ? 0.35 : -0.30
       head.add(suture)
     }
+    const smile = new THREE.Group()
+    smile.position.set(0, -0.02, 0.24)
+    smile.visible = false
+    const gum = new THREE.MeshStandardMaterial({ color: '#6a403c', roughness: 0.55 })
+    const toothMat = new THREE.MeshStandardMaterial({ color: '#efe6d4', roughness: 0.28 })
+    const cavity = new THREE.Mesh(new THREE.SphereGeometry(0.058, 14, 10), dark)
+    cavity.scale.set(1.45, 0.62, 0.42)
+    cavity.position.set(0, -0.01, -0.01)
+    smile.add(cavity)
+    const upperGum = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.012, 6, 14, Math.PI), gum)
+    upperGum.rotation.x = Math.PI
+    upperGum.rotation.z = Math.PI
+    upperGum.position.set(0, 0.012, 0.012)
+    smile.add(upperGum)
+    for (let i = 0; i < 9; i++) {
+      const u = (i - 4) / 4
+      const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.011, i % 4 === 0 ? 0.034 : 0.024, 0.012), toothMat)
+      tooth.position.set(u * 0.052, -0.004 - u * u * 0.02, 0.028)
+      tooth.rotation.z = u * 0.28
+      smile.add(tooth)
+      const lower = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.016, 0.01), toothMat)
+      lower.position.set(u * 0.046, -0.034 - u * u * 0.008, 0.02)
+      lower.rotation.z = -u * 0.2
+      smile.add(lower)
+    }
+    for (const side of [-1, 1]) {
+      const corner = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), dark)
+      corner.position.set(side * 0.058, 0.004, 0.02)
+      smile.add(corner)
+    }
+    head.add(smile)
+    this.smile = smile
+    const pit = new THREE.MeshStandardMaterial({ color: '#070606', roughness: 0.35, emissive: '#2a1814', emissiveIntensity: 0.35 })
+    for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), pit)
+      eye.scale.set(1.1, 0.42, 0.55)
+      eye.position.set(side * 0.046, 0.09, 0.25)
+      head.add(eye)
+    }
+    const faceLamp = new THREE.PointLight('#f4e2c8', 0, 1.8, 2)
+    faceLamp.position.set(0, 0.02, 0.46)
+    faceLamp.visible = true
+    head.add(faceLamp)
+    this.faceLamp = faceLamp
     // A ragged hospital restraint hangs below the neck and sways with the spine.
     const restraint = new THREE.Mesh(new THREE.PlaneGeometry(0.31, 0.64, 4, 4), agedCloth)
     restraint.position.set(0.15, -0.35, 0.228)
     restraint.rotation.z = -0.17
     spine.add(restraint)
 
+    // Purely visual cloth and cowl details, attached to the current rig joints.
+    // No AI, hitbox, chase logic or pose update is changed.
+    decorateMonsterV5(spine, head, pelvis)
     this.group.add(pelvis)
     this.group.visible = false
   }
@@ -267,7 +320,68 @@ export class MonsterActor {
     this.stuckT = 0
   }
 
+  /** Shows the stitched smile and tips the head toward the crack. Facing is 0–1. */
+  presentSmile(amount: number, facing: number): void {
+    if (this.smile) {
+      const open = Math.max(0, Math.min(1, amount))
+      this.smile.visible = open > 0.04
+      this.smile.scale.set(0.92 + open * 0.22, 0.28 + open * 0.92, 1)
+    }
+    if (!this.head || facing < 0.02) return
+    this.head.rotation.x = -0.34 * facing
+    this.head.rotation.y *= 1 - facing
+    this.head.rotation.z *= 1 - facing
+  }
+
+  /**
+   * Snaps the chin down over the closet crack. Amount 0 leaves the walk pose alone.
+   * The body stays upright so the face lands in the slit instead of pitching over it.
+   */
+  detachFaceLamp(): THREE.PointLight | null {
+    if (!this.faceLamp) return null
+    this.faceLamp.removeFromParent()
+    return this.faceLamp
+  }
+
+  loomOver(amount: number): void {
+    const t = Math.max(0, Math.min(1, amount))
+    if (this.faceLamp) {
+      this.faceLamp.intensity = t < 0.04 ? 0 : 6.5 * t
+      if (this.head && this.faceLamp.parent !== this.head) {
+        this.group.updateMatrixWorld(true)
+        this.head.localToWorld(this.faceLamp.position.set(0, 0.02, 0.46))
+      }
+    }
+    if (t < 0.04) {
+      if (this.smile) this.smile.visible = false
+      return
+    }
+    if (this.spine) this.spine.rotation.x = 0.36 + (0.08 - 0.36) * t
+    if (this.neck) this.neck.rotation.x = -0.25 + 0.97 * t
+    if (this.head) {
+      this.head.rotation.x = 0.62 * t
+      this.head.rotation.y *= 1 - t
+      this.head.rotation.z *= 1 - t
+    }
+    if (this.smile) {
+      this.smile.visible = true
+      this.smile.scale.set(1.05, 0.28 + 0.95 * t, 1)
+      this.smile.position.z = 0.24 + 0.05 * t
+    }
+    const reach = 1.05 * t
+    if (this.armL) this.armL.rotation.x = reach
+    if (this.armR) this.armR.rotation.x = reach
+    if (this.foreL) this.foreL.rotation.x = 0.5 * t
+    if (this.foreR) this.foreR.rotation.x = 0.5 * t
+  }
+
   update(h: MonsterHooks): { attack: boolean; foundHiding: boolean; state: MonsterStateName; entered: MonsterStateName | null } {
+    if (this.scripted) {
+      this.animate(h.dt, this.scriptWalk)
+      this.group.position.set(this.pos.x, this.pos.y, this.pos.z)
+      this.group.rotation.y = this.yaw
+      return { attack: false, foundHiding: false, state: this.bb.state, entered: null }
+    }
     const prev = this.bb.state
     const eye = { x: this.pos.x, y: this.pos.y + 1.7, z: this.pos.z }
     const fwd = forwardFromYaw(this.yaw)

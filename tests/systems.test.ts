@@ -212,8 +212,10 @@ describe('story', () => {
     expect(currentObjective(snap).id).toBe('m1_brev')
     expect(currentObjective(snap).text).not.toMatch(/skjult/i)
     snap.readIds.push('note_maja')
+    expect(currentObjective(snap).id).toBe('m1_brev')
+    snap.inventory = addItem(snap.inventory, 'key_gang').slots
     expect(currentObjective(snap).id).toBe('m2_reception')
-    snap.readIds.push('note_log')
+    snap.readIds.push('rec_door')
     expect(currentObjective(snap).id).toBe('m3_generator')
     expect(currentObjective(snap).text).toContain('0/3')
     snap.flags.generatorOn = true

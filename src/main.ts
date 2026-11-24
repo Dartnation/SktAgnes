@@ -31,14 +31,18 @@ const hooks: UIHooks = {
   useItem: () => game?.handle('use'),
   dropItem: () => game?.handle('drop'),
   closeExamine: () => game?.handle('closeEx'),
+  hallAnswer: (choice) => game?.handle('hall', choice),
   digit: (d) => game?.handle('digit', d),
   keypadOk: () => game?.handle('keyOk'),
   keypadClear: () => game?.handle('keyClear'),
   closeKeypad: () => game?.handle('keyClose'),
   patchSettings: (partial: Partial<Settings>) => game?.applyPatch(partial),
+  fullscreen: () => game?.handle('fullscreen'),
   endingMenu: () => game?.handle('endMenu'),
   endingRetry: () => game?.handle('endRetry'),
   endingNew: () => game?.handle('endNew'),
+  watchYes: () => game?.handle('watchYes'),
+  watchNo: () => game?.handle('watchNo'),
 }
 
 const ui = new UI(root, hooks)

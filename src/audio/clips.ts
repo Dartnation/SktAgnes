@@ -7,6 +7,7 @@ export const CLIP_FILES = {
   shadow: 'pludselig-skygge-monster.mp3',
   deep: 'dyb-lyd.mp3',
   bed: 'baggrundslyd-hele-tiden-i-lav.mp3',
+  menuBed: 'heard-baggrund.mp3',
 } as const
 
 export type ClipKey = keyof typeof CLIP_FILES

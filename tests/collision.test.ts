@@ -75,6 +75,18 @@ describe('collision', () => {
     )
     expect(chosen?.id).toBe('front')
   })
+
+  it('keeps a low drawer you are standing in front of', () => {
+    const chosen = selectInteract(
+      { x: 8.35, y: 1.62, z: 4.15 },
+      { x: 0, y: 0, z: -1 },
+      [
+        { id: 'rec_file_empty', kind: 'container', x: 8.35, y: 0.42, z: 2.71, radius: 0.72, prompt: 'Skuffe' },
+        { id: 'rec_file_journal', kind: 'container', x: 8.8, y: 0.78, z: 2.71, radius: 0.72, prompt: 'Skuffe' },
+      ],
+    )
+    expect(chosen?.id).toBe('rec_file_empty')
+  })
 })
 
 describe('senses', () => {

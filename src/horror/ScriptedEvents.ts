@@ -7,6 +7,16 @@ export interface ScriptState {
   slagterT: number
   /** Unique ids of director beats that have already played. */
   beats: string[]
+  /** The door figure in the patient hall has finished. */
+  hallDoor: boolean
+  /** The closet figure has screamed in the player's face. */
+  hallCloset: boolean
+  /** Seconds left before the hall goes dark. Negative until both shocks are done. */
+  hallWait: number
+  /** Seconds of darkness left in the patient hall. */
+  hallDark: number
+  /** The hall blackout has already happened. */
+  hallPlayed: boolean
 }
 
 export interface ScriptInput {
@@ -27,7 +37,36 @@ export interface ScriptInput {
 }
 
 export function emptyScript(): ScriptState {
-  return { jumps: [], shadowAt: -100, slagter: 0, slagterT: 0, beats: [] }
+  return { jumps: [], shadowAt: -100, slagter: 0, slagterT: 0, beats: [], hallDoor: false, hallCloset: false, hallWait: -1, hallDark: 0, hallPlayed: false }
+}
+
+export const HALL_WAIT = 10
+export const HALL_DARK = 4
+
+/** Full darkness only in the patient hall, ten seconds after both shocks, then the lights return. */
+export function stepHallDark(prev: ScriptState, dt: number, room: string): { state: ScriptState; cue: '' | 'out' | 'back' } {
+  const state: ScriptState = { ...prev, jumps: prev.jumps, beats: prev.beats }
+  let cue: '' | 'out' | 'back' = ''
+  const step = Math.max(0, dt)
+  if (!state.hallPlayed && state.hallDoor && state.hallCloset && state.hallWait < 0 && state.hallDark <= 0) {
+    state.hallWait = HALL_WAIT
+  }
+  if (state.hallWait >= 0 && room === 'patientgang') {
+    state.hallWait -= step
+    if (state.hallWait <= 0) {
+      state.hallWait = -1
+      state.hallDark = HALL_DARK
+      cue = 'out'
+    }
+  }
+  if (state.hallDark > 0) {
+    state.hallDark = Math.max(0, state.hallDark - step)
+    if (state.hallDark === 0) {
+      state.hallPlayed = true
+      cue = 'back'
+    }
+  }
+  return { state, cue }
 }
 
 const PASSES: { id: string; room: string; cue: string }[] = [
@@ -43,6 +82,11 @@ export function stepScript(prev: ScriptState, input: ScriptInput): { state: Scri
     slagter: prev.slagter,
     slagterT: prev.slagterT,
     beats: (prev.beats ?? []).slice(),
+    hallDoor: prev.hallDoor === true,
+    hallCloset: prev.hallCloset === true,
+    hallWait: Number.isFinite(prev.hallWait) ? prev.hallWait : -1,
+    hallDark: Number.isFinite(prev.hallDark) ? Math.max(0, prev.hallDark) : 0,
+    hallPlayed: prev.hallPlayed === true,
   }
   const cues: string[] = []
   if (input.room && input.room !== input.prevRoom) {
@@ -52,23 +96,17 @@ export function stepScript(prev: ScriptState, input: ScriptInput): { state: Scri
       cues.push(pass.cue)
     }
   }
-  // The big figure waits for the blackout. Walking into the room with the lights on does nothing.
-  if (input.powerCut && input.room === 'slagterum' && state.slagter === 0) {
-    state.slagter = 1
-    state.slagterT = 0
-    cues.push('blackout')
-    cues.push('silence')
-  }
+  // The figure behind the player is gone. A power cut no longer summons it.
   if (state.slagter === 1) {
-    state.slagterT += input.dt
-    if (state.slagterT > 1.35) {
+    // The figure stays behind them until the flashlight is back on. No clock.
+    if (input.flashlight) {
       state.slagter = 2
       state.slagterT = 0
       cues.push('await-turn')
     }
   } else if (state.slagter === 2) {
-    state.slagterT += input.dt
-    if (input.lookingAtFigure) {
+    // Running and screaming starts when they turn toward it, not after a delay.
+    if (input.flashlight && input.lookingAtFigure) {
       state.slagter = 3
       state.slagterT = 0
       cues.push('charge')

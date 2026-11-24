@@ -137,6 +137,8 @@ export function migrateSnapshot(raw: unknown): GameSnapshot | null {
     readIds,
     containers: src.containers && typeof src.containers === 'object' ? src.containers : undefined,
     closet: restoreCloset(src.closet),
+    hallWait: Number.isFinite(src.hallWait) ? Math.max(-1, src.hallWait as number) : -1,
+    hallStep: Number.isInteger(src.hallStep) ? Math.max(0, Math.min(2, src.hallStep as number)) : 0,
   }
 }
 
@@ -196,5 +198,6 @@ function restoreCloset(raw: GameSnapshot['closet']): ClosetState | undefined {
     locked: Number.isFinite(raw.locked) ? Math.max(0, raw.locked) : 0,
     whisper: Number.isFinite(raw.whisper) ? Math.max(0, raw.whisper) : 0,
     screamed: raw.screamed === true,
+    faced: raw.faced === true,
   }
 }

@@ -3,6 +3,7 @@ import type { SaveData } from '../systems/SaveSystem'
 import type { ItemDef } from '../systems/catalog'
 import type { EndingId } from '../systems/Story'
 import { endingCopy } from '../systems/Story'
+import { itemArtwork } from './ItemArtwork'
 
 export interface UIHooks {
   newGame: () => void
@@ -26,14 +27,18 @@ export interface UIHooks {
   useItem: () => void
   dropItem: () => void
   closeExamine: () => void
+  hallAnswer: (choice: string) => void
   digit: (d: string) => void
   keypadOk: () => void
   keypadClear: () => void
   closeKeypad: () => void
   patchSettings: (partial: Partial<Settings>) => void
+  fullscreen: () => void
   endingMenu: () => void
   endingRetry: () => void
   endingNew: () => void
+  watchYes: () => void
+  watchNo: () => void
 }
 
 export class UI {
@@ -56,11 +61,13 @@ export class UI {
     on('#btn-continue', h.continue)
     on('#btn-load', h.openLoad)
     on('#btn-settings', h.settings)
+    on('#btn-fullscreen', h.fullscreen)
     on('#btn-credits', h.credits)
     on('#btn-exit', h.exit)
     on('#btn-resume', h.resume)
     on('#btn-save', h.openSave)
     on('#btn-pause-settings', h.settings)
+    on('#btn-pause-full', h.fullscreen)
     on('#btn-restart', h.restart)
     on('#btn-menu', h.menu)
     on('#btn-settings-back', h.closeSettings)
@@ -69,15 +76,27 @@ export class UI {
     on('#btn-exit-back', h.exitBack)
     on('#btn-inv-close', h.closeInventory)
     on('#btn-inv-hud', h.openInventory)
+    this.root.querySelector('#mission')?.addEventListener('click', () => {
+      const card = this.q('#mission')
+      window.clearTimeout(this.missionTimer)
+      card.classList.toggle('is-open')
+    })
     on('#btn-use', h.useItem)
     on('#btn-drop', h.dropItem)
     on('#btn-examine-close', h.closeExamine)
+    this.root.querySelector('#ex-ask')?.addEventListener('click', (ev) => {
+      const btn = (ev.target as HTMLElement).closest('[data-hall]')
+      if (!btn) return
+      h.hallAnswer((btn as HTMLElement).dataset.hall ?? '')
+    })
     on('#btn-key-ok', h.keypadOk)
     on('#btn-key-clear', h.keypadClear)
     on('#btn-key-close', h.closeKeypad)
     on('#btn-end-menu', h.endingMenu)
     on('#btn-end-retry', h.endingRetry)
     on('#btn-end-new', h.endingNew)
+    on('#btn-watch-yes', h.watchYes)
+    on('#btn-watch-no', h.watchNo)
     this.root.querySelectorAll('[data-digit]').forEach((btn) => {
       btn.addEventListener('click', () => h.digit((btn as HTMLElement).dataset.digit || ''))
     })
@@ -149,8 +168,15 @@ export class UI {
     ;(this.q('#btn-continue') as HTMLButtonElement).disabled = !on
   }
 
-  hud(opts: { objective: string; files: string; prompt: string; stamina: number; battery: number; batteryText?: string; low: boolean; lockHint: boolean }): void {
+  private missionTimer = 0
+
+  hud(opts: { objective: string; missionRoom?: string; missionNote?: string; files: string; prompt: string; stamina: number; battery: number; batteryText?: string; low: boolean; lockHint: boolean; keys?: string[] }): void {
     this.q('#obj-text').textContent = opts.objective
+    this.q('#mission-room').textContent = opts.missionRoom || 'Skt. Agnes'
+    const note = this.q('#mission-note')
+    note.textContent = opts.missionNote || ''
+    note.classList.toggle('hidden', !opts.missionNote)
+    this.q('#mission').classList.toggle('is-locked', !!opts.missionNote)
     this.q('#files').textContent = opts.files
     this.q('#prompt').innerHTML = opts.prompt ? `<b>E</b> ${escapeHtml(opts.prompt)}` : ''
     const stam = this.q('#stam')
@@ -163,6 +189,68 @@ export class UI {
     const label = this.q('#bat-label')
     if (label) label.textContent = opts.batteryText ? `Batteri ${opts.batteryText}` : 'Batteri'
     this.q('#lock-hint').classList.toggle('hidden', !opts.lockHint)
+    this.keyMarks(opts.keys ?? [])
+  }
+
+  /** The three map keys beside the corner title. A found key burns brighter. */
+  keyMarks(ids: string[]): void {
+    this.root.querySelectorAll<HTMLElement>('#key-marks [data-key]').forEach((el) => {
+      el.classList.toggle('on', ids.includes(el.dataset.key ?? ''))
+    })
+  }
+
+  /** Shows the current line and leaves it up until the task changes. */
+  presentMission(): void {
+    const card = this.q('#mission')
+    card.classList.remove('is-open')
+    void card.offsetWidth
+    card.classList.add('is-open')
+    window.clearTimeout(this.missionTimer)
+  }
+
+  /** Keeps the line on screen. */
+  showMission(): void {
+    this.q('#mission').classList.add('is-open')
+  }
+
+  /** Keeps the hide order on screen until the closet is used. */
+  shoutMission(on: boolean): void {
+    const card = this.q('#mission')
+    card.classList.toggle('is-shout', on)
+    if (!on) return
+    card.classList.add('is-open')
+    window.clearTimeout(this.missionTimer)
+  }
+
+  /** Takes the line down while a scene is playing on the wall. */
+  hideMission(): void {
+    const card = this.q('#mission')
+    card.classList.remove('is-open', 'is-shout')
+    window.clearTimeout(this.missionTimer)
+  }
+
+  /** Hides the inventory and the other cards while the closet crack is the whole view. */
+  closetView(on: boolean): void {
+    this.q('#hud').classList.toggle('is-closet', on)
+  }
+
+  /** Full pause before the reception door. The buttons need the pointer. */
+  watchAsk(on: boolean): void {
+    this.q('#watch').classList.toggle('hidden', !on)
+  }
+
+  /** Arrow and countdown while the player lines up with the opposite wall. */
+  watchGuide(text: string, arrowDeg: number | null, count: number | null): void {
+    const root = this.q('#watch-guide')
+    root.classList.toggle('hidden', !text && count === null)
+    this.q('#watch-guide-text').textContent = text
+    const arrow = this.q('#watch-arrow') as HTMLElement
+    const showArrow = arrowDeg !== null && count === null
+    arrow.classList.toggle('hidden', !showArrow)
+    if (showArrow) arrow.style.transform = `rotate(${arrowDeg}deg)`
+    const num = this.q('#watch-count')
+    num.classList.toggle('hidden', count === null)
+    if (count !== null) num.textContent = String(count)
   }
 
   hurt(amount: number): void {
@@ -198,6 +286,7 @@ export class UI {
     card.classList.toggle('hidden', !name)
     card.classList.toggle('important', important)
     this.q('#found-name').textContent = count > 1 ? `${name} × ${count}` : name
+    this.q('#found-art').innerHTML = name ? itemArtwork(name) : ''
     this.q('#found-desc').textContent = description
   }
 
@@ -228,6 +317,15 @@ export class UI {
     ;(this.q('#set-flicker') as HTMLInputElement).checked = s.reduceFlicker
     ;(this.q('#set-invert') as HTMLInputElement).checked = s.invertY
     ;(this.q('#set-full') as HTMLInputElement).checked = s.fullscreen
+    this.fullscreenLabel(s.fullscreen)
+  }
+
+  fullscreenLabel(on: boolean): void {
+    const text = on ? 'Forlad fuldskærm' : 'Fuldskærm'
+    for (const id of ['#btn-fullscreen', '#btn-pause-full']) {
+      const el = this.root.querySelector(id)
+      if (el) el.textContent = text
+    }
   }
 
   slots(list: (SaveData | null)[], title: string): void {
@@ -251,7 +349,7 @@ export class UI {
     if (el) el.textContent = text
   }
 
-  inventory(items: { name: string; count: number; desc: string }[], index: number): void {
+  inventory(items: { name: string; count: number; desc: string; kind?: string }[], index: number): void {
     const list = this.q('#inv-list')
     list.innerHTML = ''
     if (!items.length) {
@@ -263,8 +361,15 @@ export class UI {
     items.forEach((item, i) => {
       const btn = document.createElement('button')
       btn.className = 'inv-item' + (i === index ? ' on' : '')
+      if (item.kind) btn.dataset.kind = item.kind
       if (i === index) btn.setAttribute('aria-current', 'true')
-      btn.textContent = item.count > 1 ? `${item.name} ×${item.count}` : item.name
+      const art = document.createElement('span')
+      art.className = 'item-art'
+      art.innerHTML = itemArtwork(item.name)
+      const label = document.createElement('span')
+      label.className = 'item-name'
+      label.textContent = item.count > 1 ? `${item.name} ×${item.count}` : item.name
+      btn.append(art, label)
       btn.addEventListener('click', () => this.hooks.selectItem(i))
       list.appendChild(btn)
     })
@@ -272,13 +377,26 @@ export class UI {
     this.q('#inv-desc').textContent = sel ? sel.desc : 'Vælg en genstand.'
   }
 
-  examine(def: ItemDef | null, mapHtml: string): void {
+  examine(def: ItemDef | null, mapHtml: string, ask = false): void {
     this.q('#ex-title').textContent = def?.name ?? ''
     this.q('#ex-body').textContent = def?.text || def?.description || ''
     this.q('#ex-map').innerHTML = mapHtml
+    if (!ask) this.ask(null)
   }
 
-  keypad(code: string, hint: string): void {
+  ask(question: { prompt: string; choices: { id: string; label: string }[] } | null, step = 0, total = 3): void {
+    const box = this.q('#ex-ask')
+    box.classList.toggle('hidden', !question)
+    this.q('#examine').classList.toggle('is-asking', !!question)
+    if (!question) return
+    const choices = question.choices.map((choice) =>
+      `<button class="text-btn" type="button" data-hall="${choice.id}">${choice.label}</button>`,
+    ).join('')
+    box.innerHTML = `<p>Spørgsmål ${step + 1} af ${total}. ${question.prompt}</p>${choices}`
+  }
+
+  keypad(code: string, hint: string, title = 'PENGESKAB'): void {
+    this.q('#keypad h2').textContent = title
     this.q('#key-code').textContent = code.padEnd(4, '·')
     this.q('#key-hint').textContent = hint
   }
@@ -320,13 +438,23 @@ const TEMPLATE = `
 </div>
 <div id="subtitle"></div>
 <div id="toast"></div>
-<div id="found" class="hidden"><p id="found-kicker">Fundet</p><h2 id="found-name"></h2><p id="found-desc"></p></div>
+<div id="found" class="hidden"><div id="found-art" aria-hidden="true"></div><p id="found-kicker">Fundet</p><h2 id="found-name"></h2><p id="found-desc"></p></div>
 <div id="perf" class="hidden"></div>
 <div id="audio-debug" class="hidden"></div>
 <div id="hud" class="hidden">
   <canvas id="minimap" width="220" height="150"></canvas>
+  <div id="key-marks" aria-label="Nøgler">
+    <span data-key="key_op" title="Operationsstuen"></span>
+    <span data-key="key_arkiv" title="Arkivet"></span>
+    <span data-key="key_kapel" title="Kapellet"></span>
+  </div>
   <button id="btn-inv-hud" type="button">Inventar</button>
-  <div class="obj"><span>Opgave</span><div id="obj-text"></div></div>
+  <article class="obj" id="mission">
+    <p class="mission-kicker">Sag</p>
+    <h2 id="mission-room"></h2>
+    <div id="obj-text"></div>
+    <p id="mission-note" class="hidden"></p>
+  </article>
   <div class="files" id="files"></div>
   <div class="cross"></div>
   <div class="prompt" id="prompt"></div>
@@ -343,17 +471,33 @@ const TEMPLATE = `
     <button class="menu-btn" id="btn-continue">Fortsæt</button>
     <button class="menu-btn" id="btn-load">Indlæs spil</button>
     <button class="menu-btn" id="btn-settings">Indstillinger</button>
+    <button class="menu-btn" id="btn-fullscreen">Fuldskærm</button>
     <button class="menu-btn" id="btn-credits">Kreditter</button>
     <button class="menu-btn" id="btn-exit">Afslut</button>
     <p class="controls-hint">WASD gå · Shift løb · Ctrl krøb · Mellemrum hop<br>E brug · F lygte · R batteri · Q rosenkrans<br>G smid · I/Tab inventar · Esc pause · F3 ydelse · F4 lyd</p>
   </div>
 </section>
+<section id="watch" class="screen hidden">
+  <div class="card watch-card">
+    <div class="kicker">Overvågning</div>
+    <h2>ER DU KLAR?</h2>
+    <p class="note">Er du klar til at se overvågning af ham, der er stukket af og aldrig kan findes?</p>
+    <button class="text-btn" id="btn-watch-yes" type="button">Ja</button>
+    <button class="text-btn" id="btn-watch-no" type="button">Nej</button>
+  </div>
+</section>
+<div id="watch-guide" class="watch-guide hidden">
+  <p id="watch-guide-text"></p>
+  <div id="watch-arrow" aria-hidden="true"></div>
+  <div id="watch-count" class="hidden"></div>
+</div>
 <section id="pause" class="screen hidden">
   <div class="card">
     <h2>PAUSE</h2>
     <button class="text-btn" id="btn-resume">Fortsæt</button>
     <button class="text-btn" id="btn-save">Gem spil</button>
     <button class="text-btn" id="btn-pause-settings">Indstillinger</button>
+    <button class="text-btn" id="btn-pause-full">Fuldskærm</button>
     <button class="text-btn" id="btn-restart">Genstart</button>
     <button class="text-btn" id="btn-menu">Hovedmenu</button>
   </div>
@@ -369,7 +513,7 @@ const TEMPLATE = `
     <div class="row"><span>Effekter</span><input id="set-sfx" type="range" min="0" max="1" step="0.01"></div>
     <div class="row"><span>Lysstyrke</span><input id="set-bright" type="range" min="0.55" max="1.6" step="0.01"></div>
     <div class="row"><span>Billedloft</span><select id="set-fps"><option value="30">30</option><option value="60">60</option><option value="120">120</option><option value="0">Ubegrænset</option></select></div>
-    <p class="note">Browseren styrer VSync. Loftet her begrænser, hvor ofte billedet tegnes.</p>
+    <p class="note">60 og derover følger skærmen, så billedet ikke hakker. 30 er til en svag computer.</p>
     <div class="row"><label class="check"><input id="set-blur" type="checkbox"> Bevægelsesslør</label></div>
     <div class="row"><label class="check"><input id="set-shake" type="checkbox"> Kamerarystelser</label></div>
     <div class="row"><label class="check"><input id="set-subs" type="checkbox"> Undertekster</label></div>
@@ -419,6 +563,7 @@ const TEMPLATE = `
     <h2 id="ex-title">Note</h2>
     <div class="paper" id="ex-body"></div>
     <div class="map" id="ex-map"></div>
+    <div id="ex-ask" class="hidden"></div>
     <button class="text-btn" id="btn-examine-close">Luk</button>
   </div>
 </section>

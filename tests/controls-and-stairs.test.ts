@@ -57,3 +57,22 @@ describe('smooth crouching', () => {
     expect(sim.vz).toBe(0)
   })
 })
+
+describe('jumping', () => {
+  it('lands and keeps walking after a jump', () => {
+    const world = buildWorld()
+    const floor = (x: number, z: number, y: number) => sampleFloorY(world, x, z, y)
+    let sim = {
+      x: 5, y: 0, z: 5, yaw: 0, pitch: 0, vy: 0, vx: 0, vz: 0,
+      stamina: 100, health: 100, crouching: false, grounded: true,
+      justLanded: false, battery: 100, flashlightOn: false,
+    }
+    const step = { forward: 1, strafe: 0, sprint: false, crouch: false, jump: false, dt: 1 / 60 }
+    sim = simulatePlayer(sim, { ...step, jump: true }, [], floor)
+    expect(sim.grounded).toBe(false)
+    expect(sim.y).toBeGreaterThan(0)
+    for (let n = 0; n < 90; n++) sim = simulatePlayer(sim, step, [], floor)
+    expect(sim.grounded).toBe(true)
+    expect(sim.z).toBeGreaterThan(5.5)
+  })
+})

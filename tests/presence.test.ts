@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { flashlightBanishes, pickRelocate } from '../src/ai/presence'
 import { beamHits } from '../src/ai/senses'
-import { emptyScript, stepScript } from '../src/horror/ScriptedEvents'
+import { emptyScript, stepHallDark, stepScript } from '../src/horror/ScriptedEvents'
 import { CLIP_FILES } from '../src/audio/clips'
 import type { AABB } from '../src/physics/Collision'
 
@@ -61,25 +61,31 @@ describe('scripted events', () => {
     expect(theatre.state.jumps).toEqual(['door_patient', 'door_operation'])
   })
 
-  it('keeps the butcher asleep until the lights die, then waits for a look', () => {
-    const walked = stepScript(emptyScript(), { dt: 0.1, time: 1, room: 'slagterum', prevRoom: 'operationsstue', ...quiet })
-    expect(walked.state.slagter).toBe(0)
-    const started = stepScript(emptyScript(), { dt: 0.1, time: 2, room: 'slagterum', prevRoom: 'operationsstue', ...quiet, powerCut: true })
-    let state = started.state
-    let cues = started.cues.slice()
-    for (let i = 0; i < 16; i++) {
-      const step = stepScript(state, { dt: 0.1, time: 3 + i, room: 'slagterum', prevRoom: 'slagterum', ...quiet, powerCut: true })
-      state = step.state
-      cues = cues.concat(step.cues)
-    }
-    expect(cues).toContain('silence')
-    expect(cues).toContain('await-turn')
-    expect(state.slagter).toBe(2)
-    const charge = stepScript(state, { dt: 0.1, time: 6, room: 'slagterum', prevRoom: 'slagterum', ...quiet, powerCut: true, lookingAtFigure: true })
-    expect(charge.cues).toContain('charge')
-    const gone = stepScript(charge.state, { dt: 0.1, time: 7, room: 'slagterum', prevRoom: 'slagterum', ...quiet, powerCut: true, beam: true })
-    expect(gone.cues).toContain('banish')
-    expect(gone.state.slagter).toBe(4)
+  it('does not summon a figure behind the player when the power fails', () => {
+    const started = stepScript(emptyScript(), { dt: 0.1, time: 2, room: 'slagterum', prevRoom: 'operationsstue', ...quiet, powerCut: true, flashlight: true, lookingAtFigure: true })
+    expect(started.state.slagter).toBe(0)
+    expect(started.cues).not.toContain('blackout')
+    expect(started.cues).not.toContain('charge')
+  })
+
+  it('blacks out the patient hall ten seconds after both shocks, then brings the lights back', () => {
+    const base = { ...emptyScript(), hallDoor: true, hallCloset: true }
+    const away = stepHallDark(base, 3, 'operationsstue')
+    expect(away.cue).toBe('')
+    expect(away.state.hallWait).toBe(10)
+    const waiting = stepHallDark(away.state, 9.5, 'patientgang')
+    expect(waiting.cue).toBe('')
+    expect(waiting.state.hallDark).toBe(0)
+    const out = stepHallDark(waiting.state, 0.6, 'patientgang')
+    expect(out.cue).toBe('out')
+    expect(out.state.hallDark).toBeGreaterThan(3)
+    const back = stepHallDark(out.state, 4, 'patientgang')
+    expect(back.cue).toBe('back')
+    expect(back.state.hallPlayed).toBe(true)
+    expect(back.state.hallDark).toBe(0)
+    const again = stepHallDark(back.state, 2, 'patientgang')
+    expect(again.cue).toBe('')
+    expect(again.state.hallWait).toBe(-1)
   })
 })
 

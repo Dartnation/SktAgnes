@@ -1,0 +1,46 @@
+name: V5 Whole-Hospital Visual Gallery
+
+on:
+  pull_request:
+    paths:
+      - 'src/world/VisualDetailV5.ts'
+      - 'src/world/LevelBuilder.ts'
+      - 'src/render/PostFX.ts'
+      - 'src/ai/MonsterLookV5.ts'
+      - 'e2e/v5-art-gallery.spec.ts'
+      - '.github/workflows/v5-art-gallery.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: v5-whole-hospital-art-gallery
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  visual-gallery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build the browser game
+        run: npm run build
+      - name: Capture all 16 areas
+        run: npx playwright test e2e/v5-art-gallery.spec.ts --project=chromium --reporter=list
+      - name: Save visual captures even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sktagnes-v5-all-16-areas
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: warn

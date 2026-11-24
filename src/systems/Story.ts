@@ -58,9 +58,13 @@ export interface GameSnapshot {
   containers?: unknown
   /** Locker hide. Missing on older saves, which means the player is not inside. */
   closet?: ClosetState
+  /** Seconds spent on the reception question. Negative until the letter is opened. */
+  hallWait: number
+  /** Which of the three letter questions is showing. */
+  hallStep: number
 }
 
-export const SPAWN = { x: 6, y: 0, z: 6, yaw: Math.PI / 2 }
+export const SPAWN = { x: 5.6, y: 0, z: 7.4, yaw: Math.atan2(4.15 - 5.6, 9.15 - 7.4) }
 export const MONSTER_START = { x: 42, y: 0, z: 9, yaw: Math.PI }
 
 export function createNewGame(): GameSnapshot {
@@ -79,7 +83,7 @@ export function createNewGame(): GameSnapshot {
       flashlightOn: false,
       crouching: false,
     },
-    inventory: [{ itemId: 'note_maja', count: 1 }],
+    inventory: [],
     pickedUp: [],
     flags: {
       generatorOn: false,
@@ -108,6 +112,8 @@ export function createNewGame(): GameSnapshot {
     iFrame: 0,
     events: emptyScript(),
     readIds: [],
+    hallWait: -1,
+    hallStep: 0,
   }
 }
 
@@ -185,7 +191,7 @@ export function endingCopy(id: EndingId): { kicker: string; title: string; parag
         title: 'Vidnet',
         paragraphs: [
           'Bagporten giver sig, da strømmen og nøglen endelig er enige. Regnen er koldere end huset. Under armen har du bevismappen, rosenkransen og alle seks journaler.',
-          'Maja står ikke på vejen. Det gør ingen. Men navnene gør. I morgen er Skt. Agnes ikke længere en anekdote, nogen kan lukke en dør på.',
+          'Casper står ikke på vejen. Det gør ingen. Men navnene gør. Michael Sørensen går ud, og huset kan ikke kalde ham tilbage.',
           'Et sted bag dig standser et par skridt ved tærsklen og bliver der. Huset husker. Nu gør nogen udenfor det også.',
         ],
       }

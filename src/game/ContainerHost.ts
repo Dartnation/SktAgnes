@@ -70,7 +70,7 @@ export class ContainerHost {
         x: at.x,
         y: at.y,
         z: at.z,
-        radius: 0.72,
+        radius: place.spec.kind === 'drawer' ? 0.13 : 0.5,
         prompt: promptFor(place, state),
       }
     })
@@ -87,7 +87,7 @@ export class ContainerHost {
     const located = { kind: place.spec.kind, x: at.x, y: at.y, z: at.z }
     const access: ContainerAccess = {
       inRange: true,
-      lineOfSight: lineOfSight(eye, at, blockers),
+      lineOfSight: canReachContainer(eye, at, blockers),
       hasRequiredItem: !place.spec.requiresItem || hasItem(place.spec.requiresItem),
     }
     let state = this.states.get(id) ?? freshContainerState()
@@ -114,6 +114,16 @@ export class ContainerHost {
       })
     }
   }
+}
+
+/** A drawer built into a cabinet can sit inside that cabinet's box. Step the check toward the player. */
+function canReachContainer(eye: { x: number; y: number; z: number }, at: { x: number; y: number; z: number }, blockers: AABB[]): boolean {
+  if (lineOfSight(eye, at, blockers) || lineOfSight(eye, { x: at.x, y: at.y + 0.45, z: at.z }, blockers)) return true
+  const dx = eye.x - at.x
+  const dz = eye.z - at.z
+  const len = Math.hypot(dx, dz) || 1
+  const stepped = { x: at.x + (dx / len) * 0.35, y: at.y + 0.25, z: at.z + (dz / len) * 0.35 }
+  return lineOfSight(eye, stepped, blockers)
 }
 
 function frontOf(place: PlacedContainer): { x: number; y: number; z: number } {

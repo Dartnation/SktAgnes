@@ -54,35 +54,15 @@ test('rum 2 og 3 viser kun dørskikkelsen, og slagterrummet venter på et blik',
   expect(archive.passerZ).toBeGreaterThan(9)
   await page.screenshot({ path: 'docs/sequence-shots/arkiv-pass.png' })
 
+  const before = await page.evaluate(() => window.__AGNES__!.snapshot().player)
   await page.evaluate(() => {
     window.__AGNES__!.advance(130)
     window.__AGNES__!.tick(0.2)
   })
-  await expect.poll(() => page.evaluate(() => {
-    const snap = window.__AGNES__!.snapshot()
-    return window.__AGNES__!.events().slagter > 0 && Math.hypot(snap.player.x - 42, snap.player.z - 8) < 3
-  })).toBe(true)
-  await page.evaluate(() => window.__AGNES__!.tick(1.5))
-  expect(await page.evaluate(() => window.__AGNES__!.events().slagter)).toBe(2)
+  const after = await page.evaluate(() => window.__AGNES__!.snapshot().player)
+  expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeLessThan(1)
+  expect(await page.evaluate(() => window.__AGNES__!.events().slagter)).toBe(0)
   expect(await page.evaluate(() => window.__AGNES__!.figure().butcher)).toBe(false)
-
-  await page.evaluate(() => {
-    window.__AGNES__!.face(Math.PI)
-    window.__AGNES__!.tick(0.2)
-  })
-  const charge = await page.evaluate(() => window.__AGNES__!.figure())
-  expect(await page.evaluate(() => window.__AGNES__!.events().slagter)).toBe(3)
-  expect(charge.butcher).toBe(true)
-  expect(charge.butcherZ).toBeGreaterThan(2)
-  await page.screenshot({ path: 'docs/sequence-shots/slagter-charge.png' })
-
-  const health = await page.evaluate(() => {
-    window.__AGNES__!.act('flashlight')
-    window.__AGNES__!.tick(0.45)
-    return { slagter: window.__AGNES__!.events().slagter, health: window.__AGNES__!.snapshot().player.health, butcher: window.__AGNES__!.figure().butcher }
-  })
-  expect(health.slagter).toBe(4)
-  expect(health.butcher).toBe(false)
-  expect(health.health).toBe(100)
+  expect(await page.evaluate(() => window.__AGNES__!.snapshot().flags.powerCut)).toBe(false)
   expect(errors).toEqual([])
 })

@@ -8,6 +8,7 @@ const files = [
   'skrig.mp3',
   'pludselig-skygge-monster.mp3',
   'dyb-lyd.mp3',
+  'heard-baggrund.mp3',
   'baggrundslyd-hele-tiden-i-lav.mp3',
 ]
 

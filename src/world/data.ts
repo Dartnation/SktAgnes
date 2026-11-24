@@ -90,6 +90,8 @@ export interface PickupDef {
   itemId: string
   x: number
   z: number
+  /** Height above the room floor. Missing means a small object resting near knee height. */
+  y?: number
 }
 
 export interface DeviceDef {
@@ -179,7 +181,7 @@ export const ROOMS: RoomDef[] = [
 void row
 
 export const CONNECTIONS: ConnectionDef[] = [
-  { id: 'door_rec_pat', a: 'reception', b: 'patientgang', kind: 'door', signA: 'Patientgangen', signB: 'Receptionen' },
+  { id: 'door_rec_pat', a: 'reception', b: 'patientgang', kind: 'door', locked: true, keyId: 'key_gang', signA: 'Patientgangen', signB: 'Receptionen' },
   { id: 'door_pat_op', a: 'patientgang', b: 'operationsstue', kind: 'door', signA: 'Operationsstuen', signB: 'Gang' },
   { id: 'door_op_slag', a: 'operationsstue', b: 'slagterum', kind: 'door', signA: 'Slagterummet', signB: 'Operationsstuen' },
   { id: 'door_slag_trappe', a: 'slagterum', b: 'trappe0', kind: 'door', signA: 'Trappe', signB: 'Slagterummet' },
@@ -223,7 +225,7 @@ export const PROPS: PropDef[] = [
   P('rec_desk', 'reception', 'receptiondesk', 4, 9.5, 2.6, 0.86, 1.12),
   P('rec_chair', 'reception', 'chair', 4, 8.4, 0.45, 0.45, 0.9),
   P('pat_bench', 'patientgang', 'bench', 18, 2.2, 1.4, 0.45, 0.48),
-  P('op_table', 'operationsstue', 'gurney', 30, 9.2, 1.8, 0.7, 0.85),
+  P('op_table', 'operationsstue', 'gurney', 33.2, 8.15, 1.8, 0.7, 0.85),
   P('op_cab', 'operationsstue', 'cabinet', 26.8, 2.2, 0.6, 1.4, 1.6),
   P('slag_table', 'slagterum', 'table', 42, 9.4, 1.8, 0.8, 0.8),
   P('slag_hook', 'slagterum', 'beam', 40, 2.4, 2.2, 0.2, 0.15),
@@ -283,6 +285,7 @@ export const PROPS: PropDef[] = [
   P('pat_cabinet', 'patientgang', 'recordcabinet', 22.65, 9.5, 0.8, 0.5, 1.55),
   P('op_sparecase', 'operationsstue', 'shelf', 30, 2.2, 1.3, 0.42, 1.75),
   P('op_assistantchair', 'operationsstue', 'chair', 32, 9.35, 0.46, 0.46, 0.85),
+  P('op_locker', 'operationsstue', 'locker', 29.0, 10.55, 0.76, 0.62, 1.8),
   P('slag_washstation', 'slagterum', 'cabinet', 37.25, 2.15, 0.65, 0.5, 1.3),
   P('slag_rustbucket', 'slagterum', 'barrel', 43.3, 2.25, 0.55, 0.55, 0.76),
   P('ark_filing2', 'arkiv', 'filing', 5.45, 9.45, 0.75, 0.54, 1.28),
@@ -303,12 +306,19 @@ export const PROPS: PropDef[] = [
   P('kam_storage', 'kammer', 'shelf', 42.2, 2.0, 0.62, 1.15, 1.7),
 ]
 
+for (const prop of PROPS) {
+  if (prop.z > 6 && (prop.kind === 'filing' || prop.kind === 'recordcabinet' || prop.kind === 'dresser')) {
+    prop.rot = Math.PI
+  }
+}
+
 export const PICKUPS: PickupDef[] = [
-  { id: 'bat_gang', room: 'patientgang', itemId: 'battery', x: 20, z: 9.2 },
-  { id: 'bat_pers', room: 'personalerum', itemId: 'battery', x: 44, z: 3 },
-  { id: 'key_op_pick', room: 'operationsstue', itemId: 'key_op', x: 32, z: 3 },
-  { id: 'key_arkiv_pick', room: 'arkiv', itemId: 'key_arkiv', x: 6, z: 3.2 },
-  { id: 'key_kapel_pick', room: 'kapel', itemId: 'key_kapel', x: 14.5, z: 9 },
+  { id: 'letter_maja', room: 'reception', itemId: 'note_maja', x: 4.15, z: 9.15, y: 1.2 },
+  { id: 'bat_pers', room: 'personalerum', itemId: 'battery', x: 43.1, z: 2.15, y: 0.52 },
+  { id: 'key_op_pick', room: 'operationsstue', itemId: 'key_op', x: 33.6, z: 2.15, y: 0.96 },
+  { id: 'bat_op', room: 'operationsstue', itemId: 'battery', x: 30.15, z: 2.32, y: 1.4 },
+  { id: 'key_arkiv_pick', room: 'arkiv', itemId: 'key_arkiv', x: 8, z: 2.4, y: 0.82 },
+  { id: 'key_kapel_pick', room: 'kapel', itemId: 'key_kapel', x: 18, z: 9.4, y: 1.08 },
 ]
 
 /**
@@ -322,6 +332,7 @@ export const DEVICES: DeviceDef[] = [
 ]
 export const HIDES: HideDef[] = [
   { id: 'hide_pat', room: 'patientgang', kind: 'locker', x: 14, z: 3.2 },
+  { id: 'hide_op', room: 'operationsstue', kind: 'locker', x: 29.0, z: 9.7 },
   { id: 'hide_kael', room: 'kaeldergang', kind: 'locker', x: 7.4, z: 8.55 },
   { id: 'hide_obs', room: 'observation', kind: 'locker', x: 34.4, z: 3.05 },
   { id: 'hide_kam', room: 'kammer', kind: 'bed', x: 40, z: 7.85 },
