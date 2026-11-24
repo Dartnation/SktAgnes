@@ -10,7 +10,7 @@ import { addVisualV3 } from './VisualV3'
 import { addCinematicArtV3 } from './CinematicArtV3'
 import { addVisualIdentityV4 } from './VisualIdentityV4'
 import { addVisualDetailV5 } from './VisualDetailV5'
-import { mountScannedAssetV5, scannedAssetId } from './ScannedAssetsV5'
+import { mountScannedAssetV5, mountScannedDecorV5, scannedAssetId } from './ScannedAssetsV5'
 
 export interface BuiltWorld {
   materials: Materials
@@ -51,6 +51,25 @@ export function buildLevel(scene: THREE.Scene, world: World, photos?: Map<string
   const disposeCinematicArtV3 = addCinematicArtV3(scene, world.rooms, world.props)
   const disposeVisualIdentityV4 = addVisualIdentityV4(scene, world.rooms)
   const disposeVisualDetailV5 = addVisualDetailV5(scene, world.rooms, world.props)
+  // Six noninteractive, authentic CC0 hero models, grounded to known room
+  // coordinates. Never register as World.props/colliders/lights/triggers.
+  const scannedDecorDisposers: Array<() => void> = [
+    mountScannedDecorV5(scene, 'desk_lamp_arm_01',
+      new THREE.Vector3(3.05, FLOOR_Y[0] + 1.14, 9.38),
+      { width: 0.34, height: 0.48, depth: 0.31 }),
+    mountScannedDecorV5(scene, 'vintage_crutches_01',
+      new THREE.Vector3(21.4, FLOOR_Y[0], 0.45),
+      { width: 0.49, height: 1.43, depth: 0.37 }),
+    mountScannedDecorV5(scene, 'hanging_industrial_lamp',
+      new THREE.Vector3(52.2, FLOOR_Y[0] + 2.78, 5.72),
+      { width: 0.72, height: 0.45, depth: 0.72 }),
+    mountScannedDecorV5(scene, 'hanging_industrial_lamp',
+      new THREE.Vector3(52.2, FLOOR_Y[1] + 2.78, 5.72),
+      { width: 0.72, height: 0.45, depth: 0.72 }),
+    mountScannedDecorV5(scene, 'hanging_industrial_lamp',
+      new THREE.Vector3(52.2, FLOOR_Y[2] + 2.78, 5.72),
+      { width: 0.72, height: 0.45, depth: 0.72 }),
+  ]
   const buckets = new Map<string, THREE.BufferGeometry[]>()
   const push = (key: string, geo: THREE.BufferGeometry) => {
     const list = buckets.get(key) ?? []
@@ -454,6 +473,7 @@ export function buildLevel(scene: THREE.Scene, world: World, photos?: Map<string
     rain,
     photoSlots,
     dispose() {
+      for (const close of scannedDecorDisposers) close()
       for (const close of scannedDisposers) close()
       disposeVisualDetailV5()
       disposeVisualIdentityV4()
