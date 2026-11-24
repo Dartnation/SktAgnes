@@ -11,6 +11,10 @@ on:
       - '.github/workflows/v5-art-gallery.yml'
   workflow_dispatch:
 
+concurrency:
+  group: v5-whole-hospital-art-gallery
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
