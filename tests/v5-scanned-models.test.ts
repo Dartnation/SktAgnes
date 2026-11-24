@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+// @ts-ignore: Test runner supplies Node; browser-only tsconfig omits @types/node.
 import fs from 'node:fs'
+// @ts-ignore: Test runner supplies Node; browser-only tsconfig omits @types/node.
 import path from 'node:path'
 import { PROPS } from '../src/world/data'
 import { scannedAssetId } from '../src/world/ScannedAssetsV5'
