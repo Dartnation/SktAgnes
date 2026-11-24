@@ -20,6 +20,7 @@ import { activeColliders, buildWorld, doorBlocksNav, patrolPoints, roomAt, sampl
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
 import type { SurfaceSet } from '../world/photoSurfaces'
 import { EXIT_DOOR, FLOOR_Y } from '../world/data'
+import { replaceCameraFlashlightV5 } from '../world/ScannedAssetsV5'
 import { ContainerHost } from './ContainerHost'
 import { Input } from './Input'
 import { GAMEPLAY_EDGES, inventoryKey, MODAL_KEYS, modeAction, type GameMode } from './modalInput'
@@ -2324,6 +2325,9 @@ export class Game {
 
   private buildViewmodel(): THREE.Group {
     const root = new THREE.Group()
+    const housing = new THREE.Group()
+    housing.name = 'TorchShell_ProceduralFallback'
+    root.add(housing)
     const skin = new THREE.MeshStandardMaterial({ color: '#988176', roughness: 0.91, emissive: '#332a23', emissiveIntensity: 0.08, depthTest: false })
     const bodyMat = new THREE.MeshStandardMaterial({ color: '#363b3a', roughness: 0.68, metalness: 0.48, emissive: '#111211', emissiveIntensity: 0.05, depthTest: false })
     const headMat = new THREE.MeshStandardMaterial({ color: '#747874', roughness: 0.44, metalness: 0.72, emissive: '#171716', emissiveIntensity: 0.05, depthTest: false })
@@ -2352,7 +2356,8 @@ export class Game {
     const forearm = rod(v(0.12, -0.14, 0.16), v(0.03, -0.04, 0.04), 0.04, 0.028, skin)
     const palm = ball(v(0.02, -0.02, -0.01), 0.034, skin)
     const thumb = rod(v(0.04, -0.01, 0.02), v(0.01, 0.03, -0.06), 0.013, 0.01, skin)
-    root.add(mark(body), mark(bezel), mark(lens), mark(nub), mark(forearm), mark(palm), mark(thumb))
+    housing.add(mark(body), mark(bezel), mark(lens), mark(nub))
+    root.add(mark(forearm), mark(palm), mark(thumb))
     for (let i = 0; i < 3; i++) {
       const z = -0.01 - i * 0.04
       root.add(mark(rod(v(0.03, -0.01, z), v(-0.015, 0.028, z - 0.015), 0.011, 0.008, skin)))
@@ -2374,7 +2379,7 @@ export class Game {
       const rib = new THREE.Mesh(new THREE.CylinderGeometry(0.031, 0.031, 0.011, 24), gripMat)
       rib.rotation.x = Math.PI / 2
       rib.position.z = 0.0 + i * 0.020
-      root.add(mark(rib))
+      housing.add(mark(rib))
     }
     for (const [z, radius, width] of [
       [-0.125, 0.036, 0.015],
@@ -2384,27 +2389,30 @@ export class Game {
       const collar = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, width, 24), collarMat)
       collar.rotation.x = Math.PI / 2
       collar.position.z = z
-      root.add(mark(collar))
+      housing.add(mark(collar))
     }
     const optic = new THREE.Mesh(new THREE.CircleGeometry(0.028, 24), opticMat)
     optic.rotation.y = Math.PI
     optic.position.z = -0.187
-    root.add(mark(optic))
+    housing.add(mark(optic))
     for (let i = 0; i < 4; i++) {
       const angle = (i / 4) * Math.PI * 2
       const screw = new THREE.Mesh(new THREE.SphereGeometry(0.0032, 7, 5), gripMat)
       screw.position.set(Math.cos(angle) * 0.037, Math.sin(angle) * 0.037, -0.182)
-      root.add(mark(screw))
+      housing.add(mark(screw))
     }
     const strap = new THREE.Mesh(new THREE.TorusGeometry(0.037, 0.004, 5, 18), gripMat)
     strap.rotation.y = Math.PI / 2
     strap.position.set(0.002, -0.037, 0.085)
-    root.add(mark(strap))
+    housing.add(mark(strap))
     const wrist = rod(v(0.18, -0.19, 0.17), v(0.115, -0.145, 0.135), 0.057, 0.049, gripMat)
     root.add(mark(wrist))
     // Visually less intrusive on a 16:9 viewport; the spotlight position and
     // gameplay battery/brightness calculations remain unchanged.
     root.scale.setScalar(0.81)
+    // Asynchronously replace ONLY the metal shell with a vetted local
+    // scanned 3D model. Player hands, movement, light and battery are unchanged.
+    replaceCameraFlashlightV5(root, housing)
     root.renderOrder = 3
     return root
   }
