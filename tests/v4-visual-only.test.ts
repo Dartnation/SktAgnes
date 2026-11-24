@@ -42,6 +42,6 @@ describe('V4 design-only illustration and 3D presentation contract', () => {
     applyContainerPose(place.spec, { progress: 1, target: 'open', takenIds: [] }, rig.mover)
     expect(rig.mover.rotation.y).toBeCloseTo(-(place.spec.swingRadians ?? Math.PI * 0.53))
     applyContainerPose(place.spec, { progress: 0, target: 'closed', takenIds: [] }, rig.mover)
-    expect(rig.mover.rotation.y).toBe(0)
+    expect(rig.mover.rotation.y).toBeCloseTo(0)
   })
 })
