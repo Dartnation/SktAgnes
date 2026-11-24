@@ -1055,3 +1055,32 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 @media (prefers-reduced-motion:reduce) {
   #found,#toast,#subtitle {animation:none!important;transition:none!important}
 }
+
+
+/* V6: keep objective inside viewport; inventory uses explicit, non-overlapping rows. */
+#hud .obj {
+  position: absolute; left: 21px; right: auto; top: 67px;
+  transform: none; box-sizing: border-box;
+  width: min(380px, calc(100vw - 290px)); max-width: none; min-width: 0;
+  padding: 12px 15px; color: #fff;
+  background: linear-gradient(110deg, rgba(8,10,12,.94), rgba(8,10,12,.66));
+}
+#hud .obj span { display: block; color: #d3b894; margin-bottom: 5px; }
+#obj-text { color: #fff; font: 500 15px/1.5 "Segoe UI",system-ui,sans-serif; overflow-wrap: anywhere; }
+#inventory .card.wide {
+  box-sizing: border-box; grid-template-rows: auto auto auto minmax(0,1fr) auto;
+  max-height: calc(100dvh - 32px); overflow: auto;
+}
+#inventory .card.wide > .note:not([id]) { grid-column: 1 / -1; grid-row: 3; margin: 0; }
+#inventory #inv-list { grid-row: 4; grid-auto-rows: minmax(125px,auto); min-height: 0; }
+#inventory #inv-desc { grid-row: 4; min-height: 0; overflow-wrap: anywhere; }
+#inventory .actions { grid-row: 5; flex-wrap: wrap; gap: 8px; }
+#inventory .inv-item { min-width: 0; }
+@media (max-width: 760px) {
+  #hud .obj { left: 10px; top: 42px; width: calc(100vw - 181px); padding: 8px; }
+  #obj-text { font-size: 12px; }
+  #inventory .card.wide { grid-template-rows: auto auto auto auto auto auto; }
+  #inventory #inv-list { grid-row: 4; grid-auto-rows: minmax(100px,auto); }
+  #inventory #inv-desc { grid-row: 5; }
+  #inventory .actions { grid-row: 6; }
+}
