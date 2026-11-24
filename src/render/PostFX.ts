@@ -11,16 +11,18 @@ import type { Quality } from '../systems/Settings'
  * Grade pass runs after bloom (and SSAO on high). It is the only place that
  * applies exposure, so the lighting stays linear until the look is finished.
  * Motion blur is a directional tap along the camera's turn, not a velocity buffer.
+ * V5 presentation: preserve dark silhouettes while reducing strong edge crush,
+ * artificial chroma fringe and warm overexposure on already red brick walls.
  */
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    uExposure: { value: 0.62 },
+    uExposure: { value: 0.71 },
     uDamage: { value: 0 },
     uFade: { value: 0 },
-    uGrain: { value: 0.012 },
-    uChroma: { value: 0.12 },
-    uVignette: { value: 0.72 },
+    uGrain: { value: 0.008 },
+    uChroma: { value: 0.065 },
+    uVignette: { value: 0.53 },
     uBlur: { value: new THREE.Vector2() },
     uTime: { value: 0 },
     uLow: { value: 0 },
@@ -68,14 +70,14 @@ const GradeShader = {
       col.g = sampleBlur(vUv).g;
       col.b = sampleBlur(vUv - o).b;
       col = max(col, vec3(0.0));
-      col = col * uExposure + vec3(0.018);
+      col = col * uExposure + vec3(0.014);
       col = aces(col);
       float n = fract(sin(dot(vUv * vec2(uTime * 13.0, 17.0), vec2(12.9898, 78.233))) * 43758.5453);
       col += (n - 0.5) * uGrain;
       vec2 p = (vUv - 0.5) * vec2(1.15, 1.25);
       float vig = smoothstep(0.25, 1.15, length(p));
-      col *= mix(1.0, 0.22, vig * uVignette);
-      col = mix(col, vec3(0.45, 0.02, 0.015), uDamage * vig);
+      col *= mix(1.0, 0.37, vig * uVignette);
+      col = mix(col, vec3(0.32, 0.025, 0.025), uDamage * vig);
       float luma = dot(col, vec3(0.333));
       col = mix(col, vec3(luma), uLow * 0.65);
       col += vec3(uFlash);
