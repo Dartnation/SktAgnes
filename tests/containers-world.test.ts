@@ -52,23 +52,23 @@ describe('skuffer og skabe i rummene', () => {
   })
 
   it('lader skjulestederne stå', () => {
-    expect(HIDES.map((hide) => hide.id).sort()).toEqual(['hide_kael', 'hide_kam', 'hide_obs', 'hide_pat'])
+    expect(HIDES.map((hide) => hide.id).sort()).toEqual(['hide_kael', 'hide_kam', 'hide_obs', 'hide_op', 'hide_pat'])
   })
 
   it('kan ikke samle det samme op to gange, og gemmer åbnet tilstand', () => {
-    const spec = containerSpecs().find((item) => item.id === 'rec_desk_drawer')!
+    const spec = containerSpecs().find((item) => item.id === 'ark_table_drawer')!
     let state = freshContainerState()
     state = toggleContainer(spec, state, access).state
     for (let i = 0; i < 8; i++) state = stepContainer(spec, state, 0.1, false)
     expect(state.progress).toBe(1)
-    const first = takeContainerLoot(spec, state, 'loot_note_log', access, true)
+    const first = takeContainerLoot(spec, state, 'loot_note_code', access, true)
     expect(first.effect).toBe('taken')
-    const second = takeContainerLoot(spec, first.state, 'loot_note_log', access, true)
+    const second = takeContainerLoot(spec, first.state, 'loot_note_code', access, true)
     expect(second.effect).toBe('already_taken')
     const states = new Map([[spec.id, first.state]])
     const saved = serializeContainers([spec], states)
     const loaded = restoreContainers([spec], saved)
-    expect(loaded.get(spec.id)?.takenIds).toEqual(['loot_note_log'])
+    expect(loaded.get(spec.id)?.takenIds).toEqual(['loot_note_code'])
     expect(loaded.get(spec.id)?.target).toBe('open')
   })
 

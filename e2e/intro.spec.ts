@@ -9,7 +9,7 @@ test('introduktionen vises ved nyt spil, kan springes over og belaster ikke fane
   await page.keyboard.press('Escape')
   await expect(page.locator('#intro')).toBeHidden()
   await expect.poll(() => page.evaluate(() => window.__AGNES__!.introOn())).toBe(false)
-  await expect(page.locator('#obj-text')).toHaveText('Læs Majas brev.')
+  await expect(page.locator('#obj-text')).toHaveText('Efterlysningen ligger på skranken.')
 
   await page.evaluate(() => window.__AGNES__!.save(1))
   await page.evaluate(() => window.__AGNES__!.teleport(18, 0, 6))

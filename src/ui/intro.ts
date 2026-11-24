@@ -13,17 +13,17 @@ export const INTRO_BEATS: IntroBeat[] = [
   {
     at: 7.4,
     title: '',
-    body: 'Jeg hedder Emil Kragh. Maja forsvandt, da hun begyndte at undersøge, hvad der egentlig skete her.',
+    body: 'Jeg hedder Michael Sørensen. Legenden fra Løsning. Jeg er her som den, der finder ham.',
   },
   {
     at: 13.4,
     title: '',
-    body: 'Hendes sidste spor førte mig til Skt. Agnes. Jeg er nødt til at finde ud af, hvad der skete med hende.',
+    body: 'Casper Jørgensen er skurken. Han er eftersøgt for at være halvovervægtig i byer over hele Danmark.',
   },
   {
     at: 19.2,
     title: 'NYT MÅL',
-    body: 'Find og læs Majas brev.',
+    body: 'Find og læs efterlysningen. Billedet på væggen er Casper.',
   },
 ]
 

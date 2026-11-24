@@ -18,30 +18,30 @@ test('skuffer og skabe kan åbnes, tømmes én gang og huskes', async ({ page },
     fs.copyFileSync(file, kept)
   }
 
-  const stand = (x: number, y: number, z: number, yaw: number) => page.evaluate(({ x, y, z, yaw }) => {
+  let pitch = 0
+  const stand = (x: number, y: number, z: number, yaw: number, nextPitch = 0) => page.evaluate(({ x, y, z, yaw, dy }) => {
     const g = window.__AGNES__!
     g.teleport(x, y, z)
     g.face(yaw)
-  }, { x, y, z, yaw })
+    if (dy) g.look(0, dy)
+    return true
+  }, { x, y, z, yaw, dy: pitch - nextPitch }).then(() => {
+    pitch = nextPitch
+  })
 
-  await stand(4, 0, 7.35, 0)
+  await stand(4, 0, 7.35, 0, -0.5)
   await expect.poll(() => page.evaluate(() => window.__AGNES__!.aim()?.id ?? '')).toBe('rec_desk_drawer')
   await page.evaluate(() => window.__AGNES__!.act('interact'))
   await expect.poll(() => page.evaluate(() => window.__AGNES__!.container('rec_desk_drawer')?.progress ?? 0)).toBeGreaterThan(0.999)
   await shot('reception-skuffe-aaben')
-  await page.evaluate(() => window.__AGNES__!.act('interact'))
-  await expect.poll(() => page.evaluate(() => window.__AGNES__!.snapshot().inventory.some((slot) => slot.itemId === 'note_log'))).toBe(true)
-  await page.evaluate(() => window.__AGNES__!.act('resume'))
-  for (let i = 0; i < 4; i++) await page.evaluate(() => window.__AGNES__!.act('interact'))
-  const notes = await page.evaluate(() => window.__AGNES__!.snapshot().inventory.filter((slot) => slot.itemId === 'note_log').reduce((n, slot) => n + slot.count, 0))
-  expect(notes).toBe(1)
+  expect(await page.evaluate(() => window.__AGNES__!.snapshot().inventory.some((slot) => slot.itemId === 'note_log'))).toBe(false)
 
-  await stand(8.35, 0, 4.15, Math.PI)
+  await stand(8.8, 0, 3.9, Math.PI, 0)
   await expect.poll(() => page.evaluate(() => window.__AGNES__!.aim()?.id ?? '')).toBe('rec_file_empty')
   await page.evaluate(() => window.__AGNES__!.act('interact'))
   await expect.poll(() => page.evaluate(() => window.__AGNES__!.container('rec_file_empty')?.target ?? '')).toBe('open')
 
-  await stand(9.25, 0, 4.15, Math.PI)
+  await stand(8.8, 0, 3.9, Math.PI, -0.62)
   await expect.poll(() => page.evaluate(() => window.__AGNES__!.aim()?.id ?? '')).toBe('rec_file_battery')
   await page.evaluate(() => window.__AGNES__!.act('interact'))
   await expect.poll(() => page.evaluate(() => window.__AGNES__!.container('rec_file_battery')?.progress ?? 0)).toBeGreaterThan(0.999)
@@ -79,8 +79,8 @@ test('skuffer og skabe kan åbnes, tømmes én gang og huskes', async ({ page },
   await page.evaluate(() => window.__AGNES__!.restart())
   await expect.poll(() => page.evaluate(() => window.__AGNES__!.mode())).toBe('playing')
   await page.evaluate(() => window.__AGNES__!.load(2))
-  await expect.poll(() => page.evaluate(() => window.__AGNES__!.container('rec_desk_drawer')?.takenIds.includes('loot_note_log') ?? false)).toBe(true)
-  await expect.poll(() => page.evaluate(() => window.__AGNES__!.snapshot().inventory.some((slot) => slot.itemId === 'note_log'))).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__AGNES__!.snapshot().inventory.some((slot) => slot.itemId === 'note_log'))).toBe(false)
+  await expect.poll(() => page.evaluate(() => window.__AGNES__!.snapshot().inventory.some((slot) => slot.itemId === 'battery'))).toBe(true)
 
   await stand(26.8, 0, 4.15, Math.PI)
   await expect.poll(() => page.evaluate(() => window.__AGNES__!.aim()?.id ?? '')).toBe('op_fuse_drawer')
@@ -102,18 +102,19 @@ test('skuffer og skabe kan åbnes, tømmes én gang og huskes', async ({ page },
   await stand(14, 0, 4.4, Math.PI)
   await page.evaluate(() => window.__AGNES__!.act('interact'))
   await expect.poll(() => page.evaluate(() => window.__AGNES__!.hiding())).toBe('hide_pat')
-
+  await page.evaluate(() => window.__AGNES__!.tick(18))
   await page.evaluate(() => window.__AGNES__!.act('interact'))
-  await stand(4, 0, 7.35, 0)
+  await expect.poll(() => page.evaluate(() => window.__AGNES__!.hiding())).toBeNull()
+
+  await stand(4, 0, 7.35, 0, -0.5)
   await expect.poll(() => page.evaluate(() => {
     const drawer = window.__AGNES__!.container('rec_desk_drawer')
     return drawer ? drawer.progress < 0.02 || drawer.progress > 0.98 : false
   })).toBe(true)
-  await page.evaluate(() => window.__AGNES__!.placeMonster(4, 0, 0.7))
-  await page.keyboard.press('KeyE')
-  await expect.poll(() => page.evaluate(() => window.__AGNES__!.monster().state)).toMatch(/Investigate|Chase/)
+  await page.evaluate(() => window.__AGNES__!.act('interact'))
   const heard = await page.evaluate(() => window.__AGNES__!.signals().some((signal) => signal.type === 'noiseEmitted' && signal.kind === 'door' && Math.abs(signal.x - 4) < 1.5))
   expect(heard).toBe(true)
+  expect(await page.evaluate(() => window.__AGNES__!.monster().state)).not.toMatch(/Chase|Attack/)
 
   expect(errors).toEqual([])
 })

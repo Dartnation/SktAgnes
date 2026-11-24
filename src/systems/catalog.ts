@@ -36,19 +36,24 @@ const note = (id: string, name: string, description: string, text: string): Item
 export const CATALOG: Record<string, ItemDef> = {
   note_maja: note(
     'note_maja',
-    'Majas brev',
-    'Kuverten er fugtig. Blækket er Majas.',
-    `Emil
+    'Caspers efterlysning',
+    'Billedet på væggen er ham. Michael Sørensen skal finde ham.',
+    `EFTERSØGT
 
-Hvis du læser det her, er jeg gået ind alene. Det var dumt. Skt. Agnes lukkede officielt i 1987, men porten er ikke den eneste vej ud — og ikke den eneste vej ind.
+Casper Jørgensen er skurken.
+Michael Sørensen — legenden fra Løsning — er den, der skal finde ham.
 
-De flyttede ikke patienterne. De flyttede journalerne ned under jorden og lod huset glemme dem. Vogteren går stadig rundgang. Han kan lide mørke, og han hader lys i øjnene.
+Han er eftersøgt for at være halvovervægtig. Sporene går gennem Horsens, Vejle, Aarhus, Odense, Aalborg og København.
 
-Koden er årstallet på stifterens sten. Jeg nåede ikke pengeskabet. Kapelnøglen skulle ligge på første sal. Bagporten er død uden strøm. Der er også en tunnel under lighuset, hvis porten svigter.
+Tre ting, hvis døren ikke vil give sig:
 
-Hvis lyset dør, så stå stille. Hvis han hvisker dit navn, er det allerede for sent at løbe.
+Hvis lyset dør, så stå stille. Løb ikke. Råb ikke.
+Skt. Agnes lukkede officielt i 1987. Ikke 1978. Ikke 1991.
+Kapelnøglen skulle ligge på første sal. Ikke i receptionen. Ikke under lighuset.
 
-— Maja`,
+Koden er årstallet på stifterens sten. Bagporten er død uden strøm.
+
+— Sagen er din, Michael.`,
   ),
   note_log: note(
     'note_log',
@@ -219,6 +224,14 @@ Hvis alle seks journaler forlader grunden sammen med bevismappen, er der noget a
     stack: 1,
     droppable: false,
   },
+  key_gang: {
+    id: 'key_gang',
+    name: 'Nøgle til patientgangen',
+    description: 'Den lå i svaret. Døren ud af receptionen vil have den.',
+    kind: 'key',
+    stack: 1,
+    droppable: false,
+  },
   key_op: {
     id: 'key_op',
     name: 'Nøgle fra operationsstuen',
@@ -231,6 +244,14 @@ Hvis alle seks journaler forlader grunden sammen med bevismappen, er der noget a
     id: 'key_arkiv',
     name: 'Nøgle fra arkivet',
     description: 'En af tre. Den lå mellem journalerne.',
+    kind: 'key',
+    stack: 1,
+    droppable: false,
+  },
+  key_slag: {
+    id: 'key_slag',
+    name: 'Nøgle fra boksen',
+    description: 'Lå i boksen. Den passer i døren ud af rummet.',
     kind: 'key',
     stack: 1,
     droppable: false,

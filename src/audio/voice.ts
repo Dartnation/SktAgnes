@@ -11,6 +11,7 @@ export const VOICE_LIMITS: Record<string, { cap: number; gap: number }> = {
   stepMonster: { cap: 1, gap: 0.24 },
   door: { cap: 1, gap: 0.28 },
   doorSlam: { cap: 1, gap: 0.4 },
+  knock: { cap: 3, gap: 0.16 },
   whisper: { cap: 1, gap: 7 },
   scream: { cap: 1, gap: 14 },
   growl: { cap: 1, gap: 1.6 },

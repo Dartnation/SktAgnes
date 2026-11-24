@@ -3,8 +3,8 @@ export type Quality = 'low' | 'medium' | 'high'
 /** How many real lights the shader may see. Extra lights stay in the scene but invisible. */
 export function visibleLightCount(quality: Quality): number {
   if (quality === 'low') return 4
-  if (quality === 'high') return 8
-  return 6
+  if (quality === 'high') return 5
+  return 4
 }
 
 export const FLICKER_ROOMS = new Set(['reception', 'patientgang', 'kaeldergang'])

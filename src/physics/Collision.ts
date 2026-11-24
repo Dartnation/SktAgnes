@@ -240,6 +240,7 @@ export function selectInteract(
   if (best) return best
   let bestDot = 0.35
   let bestD = maxDist
+  let bestMiss = Infinity
   for (const c of candidates) {
     const ox = c.x - origin.x
     const oy = c.y - origin.y
@@ -247,10 +248,16 @@ export function selectInteract(
     const d = Math.hypot(ox, oy, oz)
     if (d > maxDist || d < 0.001) continue
     const dot = (ox * dx + oy * dy + oz * dz) / d
-    if (dot > bestDot && d < bestD + 0.4) {
+    if (dot <= 0.35) continue
+    const along = ox * dx + oz * dz
+    const hmiss = Math.hypot(ox - dx * along, oz - dz * along)
+    const closerToTheLook = hmiss < bestMiss - 0.2
+    const sameLook = hmiss < bestMiss + 0.2 && dot > bestDot && d < bestD + 0.4
+    if (closerToTheLook || sameLook) {
       best = c
       bestDot = dot
       bestD = d
+      bestMiss = hmiss
     }
   }
   return best

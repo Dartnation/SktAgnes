@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { FLOOR_Y, type PropDef, type RoomDef } from './data'
+import { FLOOR_Y, WALL_H, type PropDef, type RoomDef } from './data'
 
 /**
  * V3 cinematic art pass: curated world-space detail, not game logic.
@@ -201,6 +201,24 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
   }
   for (const r of rooms) {
     if (r.outdoors) continue
+    // Architectural dressing uses the rear/front wall strips, well away from
+    // all inter-room doorways (which sit in the X-side walls near z≈6).
+    // These are visual, non-colliding details – no changes to world.props.
+    const skirting: Finish = r.wallMat === 'panel' ? 'oak' : r.wallMat === 'brick' ? 'iron' : 'paint'
+    for (const z of [0.155, r.d - 0.155]) {
+      b(r, skirting, r.w * 0.5, 0.13, z, r.w - 0.42, 0.22, 0.066)
+      b(r, 'shadow', r.w * 0.5, 0.25, z + (z < r.d * 0.5 ? 0.01 : -0.01),
+        r.w - 0.42, 0.017, 0.07)
+      // Slender moulding breaks up bare walls without manufacturing props.
+      b(r, skirting, r.w * 0.5, WALL_H - 0.13, z,
+        r.w - 0.40, 0.14, 0.11)
+      b(r, 'shadow', r.w * 0.5, WALL_H - 0.21, z,
+        r.w - 0.42, 0.022, 0.08)
+    }
+    // A muted wall plate on the side of each doorway; not an interactable.
+    b(r, 'iron', 0.15, 1.36, 5.05, 0.043, 0.23, 0.155)
+    b(r, 'porcelain', 0.175, 1.39, 5.05, 0.024, 0.115, 0.063)
+    b(r, 'shadow', 0.192, 1.405, 5.05, 0.009, 0.044, 0.022)
     // All additional geometry stays at walls, above tables or inside existing furniture.
     // Never obstruct central door approach (z ~ 6) with decorative objects.
     const x = r.w - 0.95
@@ -257,7 +275,7 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
           b(r, 'shadow', sx, sy, 0.505, 0.58, 0.31, 0.015)
           folder(r, sx - 0.23, sy - 0.13, 0.54, 4)
         }
-        chart(r, 8.2, 1.78, 0.29)
+        chart(r, 7.55, 1.78, 0.29)
         for (let i = 0; i < 3; i++) vial(r, 9.22 + i * 0.14, 1.04, 9.67)
         // Large, unmistakable period hospital reception identity.
         poster(r, 4.25, 2.53, 11.78, 3.1, 0.91, -1, 'SANKT AGNES', 'MODTAGELSE  •  NATTJENESTE')
@@ -281,9 +299,9 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
         place(r, 'orb', 'brass', 4.95, 1.23, 9.22, 0.18, 0.10, 0.18)
         b(r, 'brass', 4.95, 1.17, 9.22, 0.21, 0.027, 0.21)
         // Stronger period radiator / wall fixture silhouettes in waiting area.
-        b(r, 'iron', 2.52, 0.63, 11.69, 2.25, 0.67, 0.17)
-        for (let i = 0; i < 13; i++)
-          b(r, 'paint', 1.50 + i * 0.17, 0.65, 11.58, 0.085, 0.53, 0.09)
+        b(r, 'iron', 7.35, 0.48, 11.69, 2.05, 0.46, 0.14)
+        for (let i = 0; i < 11; i++)
+          b(r, 'paint', 6.48 + i * 0.17, 0.48, 11.58, 0.08, 0.36, 0.08)
         break
       }
       case 'patientgang': {
@@ -303,8 +321,8 @@ export function addCinematicArtV3(scene: THREE.Scene, rooms: RoomDef[], props: P
           b(r, 'paint', 8.73 + i * 0.48, 1.18, 0.51, 0.40, 0.055, 0.025)
         }
         for (let i = 0; i < 6; i++) vial(r, 9.3 + (i % 3) * 0.18, 1.3 + Math.floor(i / 3) * 0.38, 0.42, 0.7)
-        b(r, 'iron', 4.45, 1.09, 9.34, 0.94, 0.045, 0.4)
-        for (let i = 0; i < 3; i++) b(r, 'brass', 4.2 + i * 0.25, 1.16, 9.38, 0.018, 0.032, 0.27)
+        b(r, 'iron', 1.7, 1.09, 10.55, 0.94, 0.045, 0.4)
+        for (let i = 0; i < 3; i++) b(r, 'brass', 1.45 + i * 0.25, 1.16, 10.58, 0.018, 0.032, 0.27)
         break
       }
       case 'slagterum': {

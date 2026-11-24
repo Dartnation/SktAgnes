@@ -53,16 +53,22 @@ const MISSIONS: MissionDef[] = [
   {
     id: 'm1_brev',
     requires: [],
-    text: () => 'Læs Majas brev.',
-    hint: () => 'Det ligger i inventaret. Undersøg det.',
-    done: (snap) => hasRead(snap, 'note_maja'),
+    text: (snap) => {
+      if (hasRead(snap, 'note_maja')) return 'Svar på efterlysningen.'
+      if (hasItem(snap.inventory, 'note_maja')) return 'Caspers efterlysning er i tasken. Tryk I og læs den.'
+      return 'Efterlysningen ligger på skranken.'
+    },
+    hint: (snap) => hasItem(snap.inventory, 'note_maja')
+      ? 'Åbn tasken med I.'
+      : 'Det ligger på skranken foran dig.',
+    done: (snap) => hasRead(snap, 'note_maja') && hasItem(snap.inventory, 'key_gang'),
   },
   {
     id: 'm2_reception',
     requires: ['m1_brev'],
-    text: () => 'Læs vagtbogen i receptionen.',
-    hint: () => 'Den ligger ved skranken.',
-    done: (snap) => hasRead(snap, 'note_log'),
+    text: () => 'Gå hen til døren.',
+    hint: () => 'Døren til patientgangen.',
+    done: (snap) => hasRead(snap, 'rec_door'),
   },
   {
     id: 'm3_generator',
@@ -86,8 +92,8 @@ const MISSIONS: MissionDef[] = [
   {
     id: 'm5_nogler',
     requires: ['m4_arkiv'],
-    text: (snap) => `Find nøglerne fra operationsstuen, arkivet og kapellet (${keyCount(snap)}/3).`,
-    hint: () => 'De tre nøgler ligger ikke i samme rum.',
+    text: (snap) => `Gennemgå operationsstuen, arkivet og kapellet (${keyCount(snap)}/3).`,
+    hint: () => 'De ligger ikke i samme rum.',
     done: (snap) => keyCount(snap) >= 3,
   },
   {

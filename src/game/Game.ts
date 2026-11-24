@@ -8,23 +8,29 @@ import type { ScareKind } from '../horror/ScareLogic'
 import { EYE_STAND, eyeHeight, PLAYER_RADIUS, simulatePlayer, smoothEyeHeight, STAND_H, type SimPlayer } from '../player/PlayerController'
 import { clampDt } from '../core/clock'
 import { createBus, type GameBus, type GameSignal } from '../core/events'
-import { applyMouseLook, rightFromYaw, type Vec3 } from '../core/math'
+import { angDiff, applyMouseLook, rightFromYaw, type Vec3 } from '../core/math'
 import { createRng, type Rng } from '../core/rng'
 import { flashlightBanishes, pickRelocate } from '../ai/presence'
-import { emptyScript, stepScript } from '../horror/ScriptedEvents'
+import { canLeaveCloset, CLOSET_PASS_END, emptyCloset, enterCloset, leaveCloset, passerAlong, passerPose, stepCloset, type ClosetState } from '../horror/ClosetSequence'
+import { emptyScript, stepHallDark, stepScript } from '../horror/ScriptedEvents'
 import { advanceEpoch, createSchedule, markRecovery, offerSequences, planBeat, stepSchedule, type ScheduleState } from '../horror/Schedule'
 import { createTone, doorStartedMoving, RADIO_SOURCE, radioPulse, stepRoomTone as advanceRoomTone, type ToneState } from '../audio/roomTone'
 import { lineOfSight, overlapsSolid, selectInteract, type InteractCandidate } from '../physics/Collision'
 import { activeColliders, buildWorld, doorBlocksNav, patrolPoints, roomAt, sampleFloorY, type World } from '../world/buildWorld'
+import { buildHanged, mountCasperPortrait, mountMichaelPortrait } from '../world/casperPortrait'
+import { buildDoorGhost } from '../world/doorGhost'
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
 import type { SurfaceSet } from '../world/photoSurfaces'
 import { EXIT_DOOR, FLOOR_Y } from '../world/data'
+import { replaceCameraFlashlightV5 } from '../world/ScannedAssetsV5'
 import { ContainerHost } from './ContainerHost'
 import { Input } from './Input'
 import { GAMEPLAY_EDGES, inventoryKey, MODAL_KEYS, modeAction, type GameMode } from './modalInput'
 import { UI } from '../ui/UI'
 import { addItem, dropOne, hasItem, removeItem, useConsumable } from '../systems/Inventory'
 import { batteryBand, boostBattery, stepBattery } from '../systems/battery'
+import { HALL_KNOCK_DELAY, HALL_QUESTIONS, hallKnockLevel } from '../systems/hallAsk'
+import { BODY_CODE, HALL_CODE, roomDoorBlock, roomMission, roomOnwardDoor, roomSealedDoors, type RoomSnap } from '../systems/roomGates'
 import { itemDef, SAFE_CODE, FILE_IDS } from '../systems/catalog'
 import { browserStorage, latestSave, listSaves, loadGame, saveGame, type StorageLike } from '../systems/SaveSystem'
 import { loadSettings, sanitizeSettings, saveSettings, type Settings } from '../systems/Settings'
@@ -34,6 +40,7 @@ import {
   currentObjective,
   fileCount,
   keysFound,
+  MISSION_KEYS,
   gateBlock,
   leaveCause,
   resolveEnding,
@@ -85,10 +92,22 @@ export class Game {
   private desired = new Map<string, number>()
   private unlocked = new Set<string>()
   private hiding: string | null = null
+  private closet: ClosetState = emptyCloset()
+  private closetBox: THREE.Group | null = null
+  private closetYaw = 0
+  private whisperSlot = -1
+  private closetLooked = false
+  private closetRoar = false
+  private closetPassHeard = false
+  private foundT = 0
+  private ambient!: THREE.AmbientLight
+  private hemi!: THREE.HemisphereLight
+  private moon!: THREE.DirectionalLight
   private holdBreath = false
   private cameraEye = EYE_STAND
   private bob = 0
   private trauma = 0
+  private scareDim = 0
   private damage = 0
   private fade = 0
   private flash = 0
@@ -98,9 +117,11 @@ export class Game {
   private toastT = 0
   private subtitleT = 0
   private lastObjective = ''
+  private lastShown = ''
   private autosavedIntro = false
   private invIndex = 0
   private code = ''
+  private codeFor: 'safe' | 'hall' | 'body' = 'safe'
   private showPerf = false
   private fps = 60
   private fpsAcc = 0
@@ -116,6 +137,36 @@ export class Game {
   private aimedDoor = ''
   private prevRoom = ''
   private prevFlash = false
+  private stairWait = -1
+  private stairPlayed = false
+  private stairFig: THREE.Object3D | null = null
+  private stairLook = 0
+  private stairPhase: 'wait' | 'cue' | 'run' | 'gone' = 'wait'
+  private stairPath: THREE.Vector3[] = []
+  private stairPathI = 0
+  private sheetCloth: THREE.Mesh | null = null
+  private sheetMark: THREE.Object3D | null = null
+  private sheetU = -1
+  private corpseUpper: THREE.Object3D | null = null
+  private corpseLook = 0
+  private corpseSit: 'off' | 'up' | 'hold' | 'down' | 'done' = 'off'
+  private corpseSitT = 0
+  private bodyLid: THREE.Object3D | null = null
+  private bodyLidU = -1
+  private bodyKeyMesh: THREE.Object3D | null = null
+  private bodyKeyTaken = false
+  private homoLetters: {
+    id: string
+    letter: string
+    x: number
+    y: number
+    z: number
+    state: 'idle' | 'green' | 'red'
+    face: THREE.MeshStandardMaterial
+  }[] = []
+  private homoStep = 0
+  private homoOrder: string[] = []
+  private readonly homoWord = ['H', 'O', 'M', 'O']
   private lungeT = 0
   private lunge!: THREE.Group
   private shadowMesh!: THREE.Mesh
@@ -125,13 +176,88 @@ export class Game {
   private butcher!: THREE.Group
   private recentSpawns: Vec3[] = []
   private hideWait = 0
-  private knocks: { at: number; pos: Vec3 }[] = []
   private showAudio = false
   private lookSX = 0
   private lookSY = 0
   private blackout = 0
+  private room2Dark = false
+  private coverLeft = 0
   private peekT = 0
   private peekCool = 12
+  private passT = 0
+  private passKind: 'cross' | 'stare' = 'cross'
+  private passPhase: 'stand' | 'shown' | 'pass' | 'corner' | 'watch' | 'wind' | 'veer' | 'run' | 'face' = 'stand'
+  private passClock = 0
+  private passStep = 0
+  private runScreamed = false
+  private hallLive = false
+  private patrolKey = ''
+  private patrolCache: { x: number; y: number; z: number }[] = []
+  private searchCache: { id: string; pos: { x: number; y: number; z: number } }[] | null = null
+  private hallWalk = 0
+  private hallLit = false
+  private hallStop = 0
+  private hallStops: THREE.Vector3[] = []
+  private hallLamp: THREE.PointLight | null = null
+  private closetQuiet = false
+  private closetBedAt = 0
+  private passFrom = new THREE.Vector3()
+  private passTo = new THREE.Vector3()
+  private runFrom = new THREE.Vector3()
+  private hallKnockNext = 0
+  private opKnockWait = -1
+  private opKnockNext = 0
+  private opChasePlayed = false
+  private opChaseLeft = 0
+  private opChaseHard = false
+  private opKnocksCut = false
+  private pendingSlam: { id: string; room: string; at: number } | null = null
+  private hangPhase: 'off' | 'fall' | 'hung' | 'feet' | 'stare' | 'flee' = 'off'
+  private hangFlee: THREE.Vector3[] = []
+  private hangFleeI = 0
+  private hangFleeShut = false
+  private hangT = 0
+  private hangX = 42
+  private hangZ = 6
+  private hangSound = 0
+  private hangCryIn = -1
+  private hangCryOn = false
+  private hangCryDone = false
+  private hangBang = false
+  private hangFallIn = -1
+  private hangRunIn = -1
+  private hangBody: THREE.Group | null = null
+  private hangRope: THREE.Mesh | null = null
+  private watchPhase: 'off' | 'ask' | 'seek' | 'play' | 'fade' | 'creak' | 'quiet' | 'scare' | 'hold' = 'off'
+  private doorWeep = false
+  private doorKnockAt = 0
+  private doorHangBody: THREE.Group | null = null
+  private doorHangRope: THREE.Mesh | null = null
+  private doorHangX = 4
+  private doorHangZ = 6
+  private doorHangBang = false
+  private creakTries = 0
+  private hangRunner: THREE.Group | null = null
+  private hangChase: 'off' | 'wait' | 'behind' | 'run' | 'face' | 'done' = 'off'
+  private hangPath: THREE.Vector3[] = []
+  private hangPathI = 0
+  private hangAim = false
+  private hangChaseT = 0
+  private hangChaseSound = false
+  private hangRoared = false
+  private watchDone = false
+  private watchLeft = 3
+  private watchMark: THREE.Group | null = null
+  private tapeGroup: THREE.Group | null = null
+  private tapeScreen: THREE.Mesh | null = null
+  private tapeBezel: THREE.Mesh | null = null
+  private tapeCaption: THREE.Mesh | null = null
+  private tapeVideo: HTMLVideoElement | null = null
+  private readonly watchStand = { x: 3.15, z: 6.7 }
+  private readonly watchYaw = -Math.PI / 2
+  private beamHold = 0
+  private butcherHit = false
+  private butcherRoar = 0
   private monsterShown = 0
   private monsterRoom = ''
   private monsterRoomUntil = 0
@@ -142,6 +268,11 @@ export class Game {
   private lightCut = new Map<string, number>()
   private lampShown = new Map<string, number>()
   private lampClock = -1
+  private lightRankAt = -1
+  private lightCamX = 1e9
+  private lightCamZ = 1e9
+  private lightKey = ''
+  private mapAt = 0
   private spot: THREE.SpotLight
   private cone: THREE.Mesh
   private viewmodel!: THREE.Group
@@ -180,30 +311,38 @@ export class Game {
       stencil: true,
     })
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
-    this.renderer.shadowMap.enabled = this.settings.quality !== 'low'
+    this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.setClearColor(0x07060a)
     this.scene.background = new THREE.Color(0x07060a)
-    this.scene.fog = new THREE.FogExp2(0x0a0b0f, 0.028)
-    // Keep a trace of moonlight for orientation, but darkness must matter.
-    this.scene.add(new THREE.AmbientLight(0x20262d, 0.028))
-    const hemi = new THREE.HemisphereLight(0x243343, 0x0d0c0b, 0.075)
-    this.scene.add(hemi)
-    const moon = new THREE.DirectionalLight(0x899baa, 0.018)
-    moon.position.set(-20, 40, -10)
-    this.scene.add(moon)
+    this.scene.fog = new THREE.FogExp2(0x0a0b0f, 0.02)
+    // Dim enough to stay a hospital at night, bright enough to read a room.
+    this.ambient = new THREE.AmbientLight(0x2a2624, 0.1)
+    this.hemi = new THREE.HemisphereLight(0x243343, 0x0d0c0b, 0.12)
+    this.moon = new THREE.DirectionalLight(0x899baa, 0.018)
+    this.moon.position.set(-20, 40, -10)
+    this.scene.add(this.ambient, this.hemi, this.moon)
+    this.closetBox = this.buildClosetBox()
 
     this.world = buildWorld()
     this.built = buildLevel(this.scene, this.world, photos)
     this.containers = new ContainerHost(this.scene)
     this.monster = new MonsterActor()
     this.scene.add(this.monster.group)
+    const faceLamp = this.monster.detachFaceLamp()
+    if (faceLamp) this.scene.add(faceLamp)
+    this.hallLamp = new THREE.PointLight('#c4b49a', 0, 3.2, 2)
+    this.hallLamp.position.set(0, 2.05, 0.12)
+    this.hallLamp.visible = true
+    this.scene.add(this.hallLamp)
     this.atmo = new Atmosphere(this.scene, 24)
     this.scene.add(this.camera)
-    this.spot = new THREE.SpotLight('#eee2cb', 0, 21, 0.5, 0.72, 1.25)
-    this.spot.castShadow = this.settings.quality !== 'low'
-    this.spot.shadow.mapSize.set(this.settings.quality === 'high' ? 1024 : 512, this.settings.quality === 'high' ? 1024 : 512)
+    this.spot = new THREE.SpotLight('#f1e4ca', 0, 21, 0.49, 0.87, 1.25)
+    this.spot.castShadow = true
+    this.spot.shadow.mapSize.set(1024, 1024)
     this.spot.shadow.bias = -0.00025
+    this.spot.shadow.normalBias = 0.014
+    this.spot.shadow.radius = 1.8
     this.spot.shadow.camera.near = 0.1
     this.spot.shadow.camera.far = 18
     this.camera.add(this.spot)
@@ -223,15 +362,34 @@ export class Game {
     this.butcher = this.buildButcher()
     this.scene.add(this.butcher)
     // V3: a distant featureless shadow instead of a bright cartoon head.
-    this.peek = new THREE.Group()
-    const peekShadow = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.13, 0.26, 3, 8),
-      new THREE.MeshStandardMaterial({ color: '#111215', roughness: 1 }),
-    )
-    peekShadow.position.y = -0.05
-    this.peek.add(peekShadow)
-    this.peek.visible = false
+    this.peek = this.buildPasser()
     this.scene.add(this.peek)
+    const hanged = buildHanged()
+    this.hangBody = hanged.body
+    this.hangRope = hanged.rope
+    this.scene.add(hanged.body, hanged.rope)
+    const doorHang = buildHanged()
+    this.doorHangBody = doorHang.body
+    this.doorHangRope = doorHang.rope
+    this.scene.add(doorHang.body, doorHang.rope)
+    const runner = buildHanged()
+    runner.body.traverse((obj) => {
+      const mesh = obj as THREE.Mesh
+      if (mesh.geometry instanceof THREE.TorusGeometry) mesh.visible = false
+    })
+    const runnerHead = runner.body.getObjectByName('hang-head')
+    if (runnerHead) runnerHead.rotation.z = 0.06
+    runner.body.visible = false
+    this.hangRunner = runner.body
+    this.scene.add(runner.body)
+    mountCasperPortrait(this.scene)
+    mountMichaelPortrait(this.scene)
+    this.mountClosetLamp()
+    this.mountHallPuzzle()
+    this.mountWallWord()
+    this.mountStairFigure()
+    this.mountMorgue()
+    this.mountWatch()
     this.spawnCells = this.world.nav.nodes
       .filter((n) => !n.doorId && !n.stair && n.links.length > 0 && (n.ix + n.iz) % 3 === 0)
       .map((n) => ({ x: n.x, y: n.y, z: n.z }))
@@ -272,6 +430,7 @@ export class Game {
     })
     this.resize()
     window.addEventListener('resize', () => this.resize())
+    document.addEventListener('fullscreenchange', () => this.syncFullscreen())
     this.applyVolumes()
     this.ui.continueEnabled(!!latestSave(this.storage))
     this.ui.fillSettings(this.settings)
@@ -279,11 +438,12 @@ export class Game {
     canvas.addEventListener('webglcontextlost', (event) => {
       event.preventDefault()
       this.contextLost = true
-      this.ui.fatal('Grafikkortet slap spillet. Genindlæs siden.')
     })
     canvas.addEventListener('webglcontextrestored', () => {
       this.contextLost = false
-      this.ui.fatal('Grafikkortet kom tilbage. Genindlæs siden for at fortsætte.')
+      this.resize()
+      if (this.mode === 'playing' || this.mode === 'examine' || this.mode === 'inventory') this.ui.show('hud')
+      else this.ui.show(this.mode)
     })
     this.ui.root.querySelector('#intro')?.addEventListener('click', () => {
       if (this.introTime >= 0) this.finishIntro()
@@ -292,14 +452,24 @@ export class Game {
 
   start(): void {
     this.audio.enableRoomTones()
-    this.ui.show('menu')
+    this.ui.show('loading')
+    this.ui.status('Tænder lygterne')
     this.mode = 'menu'
-    this.clock = performance.now()
-    this.rafId = requestAnimationFrame(this.onFrame)
+    requestAnimationFrame(() => {
+      this.resize()
+      try { this.warmHall() } catch (err) { console.error(err) }
+      this.ui.show('menu')
+      this.clock = performance.now()
+      this.rafId = requestAnimationFrame(this.onFrame)
+    })
   }
 
   private onFrame = (now: number): void => {
-    if (this.frozen || this.contextLost) return
+    if (this.frozen) return
+    if (this.contextLost) {
+      this.rafId = requestAnimationFrame(this.onFrame)
+      return
+    }
     try {
       const dt = clampDt((now - this.clock) / 1000 || 0)
       this.clock = now
@@ -311,15 +481,15 @@ export class Game {
         this.fpsFrames = 0
       }
       const cap = this.settings.fpsCap
-      if (cap > 0) {
+      if (cap === 30) {
         this.acc += dt
-        const step = 1 / cap
-        if (this.acc >= step - 0.0001) {
+        if (this.acc >= 1 / 30) {
           const used = clampDt(this.acc)
           this.acc = 0
           this.advance(used)
         }
       } else {
+        this.acc = 0
         this.advance(dt)
       }
     } catch (err) {
@@ -342,6 +512,10 @@ export class Game {
 
   private advance(dt: number): void {
     this.applyModalKeys()
+    if ((this.mode === 'playing' || this.mode === 'examine') && this.watchPhase !== 'ask') {
+      if (this.hallOpen()) this.stepHallKnocks(dt)
+      this.stepOpKnocks(dt)
+    }
     if (this.mode === 'playing') this.updatePlaying(dt)
     else if (this.mode === 'menu' || this.mode === 'credits' || this.mode === 'exit') this.updateIdle(dt)
     this.render(dt)
@@ -363,6 +537,10 @@ export class Game {
   }
 
   private updatePlaying(dt: number): void {
+    if (this.watchPhase === 'ask') {
+      this.ui.watchAsk(true)
+      return
+    }
     if (this.introTime >= 0) {
       this.stepIntro(dt)
       return
@@ -374,6 +552,7 @@ export class Game {
     this.rosaryCd = Math.max(0, this.rosaryCd - dt)
     this.messageT = Math.max(0, this.messageT - dt)
     this.toastT = Math.max(0, this.toastT - dt)
+    this.foundT = Math.max(0, this.foundT - dt)
     this.subtitleT = Math.max(0, this.subtitleT - dt)
     this.damage = Math.max(0, this.damage - dt * 0.8)
     this.noises.length = 0
@@ -385,12 +564,46 @@ export class Game {
     }
 
     const look = this.input.consumeLook()
-    this.lookSX = this.lookSX * 0.4 + look.x * 0.6
-    this.lookSY = this.lookSY * 0.4 + look.y * 0.6
-    const aimed = applyMouseLook(this.sim.yaw, this.sim.pitch, this.lookSX, this.lookSY, this.settings.invertY)
-    this.sim.yaw = aimed.yaw
-    this.sim.pitch = aimed.pitch
-    const wish = this.input.wish()
+    const watchLookLock = this.watchPhase === 'play'
+    const watchLock = this.watchPhase === 'play' || this.watchPhase === 'fade' || this.watchPhase === 'creak' || this.watchPhase === 'quiet' || this.watchPhase === 'scare' || this.watchPhase === 'hold'
+    const chaseLock = this.hangAim
+    const hallLock = this.hallLive && (this.passPhase === 'run' || this.passPhase === 'face')
+    if (chaseLock) {
+      this.lookSX = 0
+      this.lookSY = 0
+      this.aimAtHangRunner()
+    } else if (hallLock) {
+      this.lookSX = 0
+      this.lookSY = 0
+      this.aimAtHallMonster()
+    } else if (!watchLookLock) {
+      this.lookSX = this.lookSX * 0.4 + look.x * 0.6
+      this.lookSY = this.lookSY * 0.4 + look.y * 0.6
+      const aimed = applyMouseLook(this.sim.yaw, this.sim.pitch, this.lookSX, this.lookSY, this.settings.invertY)
+      this.sim.yaw = aimed.yaw
+      this.sim.pitch = aimed.pitch
+    } else {
+      this.lookSX = 0
+      this.lookSY = 0
+    }
+    if (this.closet.phase === 'inside') {
+      const turn = Math.atan2(Math.sin(this.sim.yaw - this.closetYaw), Math.cos(this.sim.yaw - this.closetYaw))
+      const loom = passerPose(this.closet.locked)
+      const lunging = !!loom && loom.lunge > 0
+      if (lunging) {
+        this.sim.yaw += angDiff(this.sim.yaw, this.closetYaw) * Math.min(1, loom.lunge * 5)
+        this.sim.pitch += (-0.22 - this.sim.pitch) * Math.min(1, loom.lunge * 5)
+        this.sim.pitch = Math.max(-0.48, Math.min(0.12, this.sim.pitch))
+      } else {
+        this.sim.yaw = this.closetYaw + Math.max(-0.42, Math.min(0.42, turn))
+        this.sim.pitch = Math.max(-0.3, Math.min(0.24, this.sim.pitch))
+      }
+    }
+    const hereRoom = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    const rawWish = this.input.wish()
+    const wish = watchLock
+      ? { forward: 0, strafe: 0, sprint: false, crouch: false, jump: false }
+      : { ...rawWish, sprint: hereRoom?.id === 'reception' ? false : rawWish.sprint }
     this.holdBreath = !!this.hiding && wish.sprint
 
     if (this.input.pressed('F3')) this.showPerf = !this.showPerf
@@ -404,6 +617,7 @@ export class Game {
     if (this.input.pressed('KeyE')) this.interact()
 
     const cols = activeColliders(this.world, this.unlocked, this.open)
+    cols.push({ id: 'morgue-bed', minX: 39.05, maxX: 41.4, minY: 0, maxY: 1.2, minZ: 7.02, maxZ: 8.1 })
     if (!this.hiding) {
       const before = this.sim.grounded
       const px = this.sim.x
@@ -438,8 +652,18 @@ export class Game {
 
     this.placeCamera(wish, dt)
     this.camera.getWorldDirection(this.camDir)
+    this.stepWatch(dt)
+    this.stepDoorWeep(dt)
+    this.stepWatchAfter(dt)
+    this.stepHangChase(dt)
 
-    const allowChase = this.computeChase()
+    const allowChase = this.computeChase() && this.closet.phase !== 'inside'
+    const passing = this.closet.phase === 'inside' ? passerPose(this.closet.locked) : null
+    const hall = this.hallLive
+    this.monster.scripted = this.closet.phase === 'inside' || hall
+    this.monster.scriptWalk = hall ? this.hallWalk : passing && passing.face < 0.2 ? 1.15 : 0
+    if (!this.huntUnlocked() && !hall) this.holdGuardianBack()
+    if (this.huntUnlocked() || this.monster.scripted) {
     const tick = this.monster.update({
       dt,
       playerPos: { x: this.sim.x, y: this.sim.y, z: this.sim.z },
@@ -452,7 +676,7 @@ export class Game {
       flashlightOn: this.sim.flashlightOn && this.sim.battery > 0,
       allowChase,
       aggression: this.aggression,
-      waypoints: patrolPoints(this.world, (f) => this.floorAllowed(f), this.snap.flags.secretOpen),
+      waypoints: this.cachedPatrol(),
       blockers: cols,
       colliders: cols,
       nav: this.world.nav,
@@ -471,26 +695,32 @@ export class Game {
         const door = this.world.doors.find((d) => d.id === id)
         return door ? doorBlocksNav(door, this.unlocked) : false
       },
-      noises: this.noises,
-      searchSpots: this.world.hides.map((hide) => {
-        const room = this.world.rooms.find((item) => item.id === hide.room)
-        return { id: hide.id, pos: { x: hide.x, y: room ? FLOOR_Y[room.floor] : this.sim.y, z: hide.z } }
-      }),
+      noises: this.huntUnlocked() ? this.noises : [],
+      searchSpots: this.cachedSearch(),
     })
-    if (tick.entered === 'Chase') this.audio.play('growl', this.monster.pos, { volume: 0.8 })
-    if (tick.attack) this.hurt(36, true)
-    if (tick.foundHiding) {
+    if (tick.entered === 'Chase' && this.huntUnlocked()) this.audio.play('growl', this.monster.pos, { volume: 0.8 })
+    if (tick.attack && this.huntUnlocked()) this.hurt(36, true)
+    if (tick.foundHiding && this.huntUnlocked()) {
       this.hiding = null
       this.hurt(28, true)
       this.say('Den fandt dig.')
     }
+    }
     // No footsteps are emitted by the monster: only the player's actual
     // movement generates walking sounds. Monster threats use growls and cues.
 
-    this.herdMonster()
-    this.relocateMonster(dt, cols)
+    this.stepCloset(dt)
+    if (!this.huntUnlocked() && !this.hallLive && this.closet.phase !== 'inside') {
+      this.monster.group.visible = false
+    }
+    if (this.huntUnlocked()) {
+      this.herdMonster()
+      this.relocateMonster(dt, cols)
+    }
     this.stepEvents(dt)
-    this.stepKnocks()
+    this.lightHallFigure()
+    this.stepOpChase(dt)
+    this.sealMissionDoors()
     this.stepDirector(dt)
     this.animateDoors(dt)
     this.drainLight(dt)
@@ -509,12 +739,14 @@ export class Game {
       health: this.snap.player.health,
       monsterDist: dist,
       inDark,
-      sprinting: this.input.wish().sprint && !this.sim.crouching,
+      sprinting: this.input.wish().sprint && !this.sim.crouching && room?.id !== 'reception',
       hiding: !!this.hiding,
       tookDamage: this.damage > 0.85,
       story: storyProgress(this.snap),
       rng: Math.random,
-      blocked: this.monster.bb.state === 'Attack' || this.lungeT > 0 || this.scares.fx.face > 0,
+      blocked: this.monster.bb.state === 'Attack' || this.lungeT > 0 || this.scares.fx.face > 0
+        || ((this.snap.events?.slagter ?? 0) > 0 && (this.snap.events?.slagter ?? 0) < 4)
+        || (!this.huntUnlocked() && (room?.id === 'patientgang' || room?.id === 'operationsstue')),
     })
     this.director = step.state
     this.aggression = step.aggression
@@ -549,7 +781,9 @@ export class Game {
     this.audio.setZone(this.zoneFor(room?.id))
     this.stepRoomTone(room, dt)
     this.creepIn -= dt
-    if (this.creepIn <= 0 && this.mode === 'playing') {
+    const quietStart = !this.huntUnlocked() && (room?.id === 'patientgang' || room?.id === 'operationsstue')
+    if (quietStart) this.creepIn = 12
+    else if (this.creepIn <= 0 && this.mode === 'playing') {
       this.creepIn = 16 + Math.random() * 18 - this.director.tension * 0.05
       const far = 6 + Math.random() * 6
       const ang = Math.random() * Math.PI * 2
@@ -589,8 +823,6 @@ export class Game {
       this.audio.play('whisper', { x: this.sim.x - this.camDir.x * behind, y: this.sim.y + 1.4, z: this.sim.z - this.camDir.z * behind }, { volume: kind === 'breath' ? 0.85 : 0.6 })
       this.caption(kind === 'breath' ? '…åndedræt, lige bag dig.' : '…Agnes…', 1.8)
       if (kind === 'breath') this.audio.setHeartbeat(0.55)
-    } else if (kind === 'knock') {
-      this.queueKnocks()
     } else if (kind === 'phone') {
       this.audio.play('sting', { x: 16, y: 5, z: 22 }, { volume: 0.8 })
       this.caption('En telefon ringer et sted i fløjen.', 2.2)
@@ -642,6 +874,14 @@ export class Game {
 
   private interact(): void {
     if (this.hiding) {
+      if (this.hiding === 'hide_op') {
+        if (!canLeaveCloset(this.closet)) {
+          this.say('Du tør ikke åbne endnu...')
+          return
+        }
+        this.exitCloset()
+        return
+      }
       this.hiding = null
       this.bus.emit({ type: 'playerRevealed' })
       this.audio.play('door', this.feet(), { volume: 0.4 })
@@ -654,6 +894,12 @@ export class Game {
     else if (hit.kind === 'hide') this.enterHide(hit.id)
     else if (hit.kind === 'generator') this.useGenerator()
     else if (hit.kind === 'safe') this.openKeypad()
+    else if (hit.kind === 'hallcode') this.openHallCode()
+    else if (hit.kind === 'sheet') this.pullSheet()
+    else if (hit.kind === 'bodycode') this.openBodyCode()
+    else if (hit.kind === 'bodykey') this.takeBodyKey()
+    else if (hit.kind === 'gurney') this.inspectGurney()
+    else if (hit.kind === 'letter') this.pressHomoLetter(hit.id)
     else if (hit.kind === 'bookshelf') this.useShelf()
     else if (hit.kind === 'radio') {
       this.snap.flags.radioOn = !this.snap.flags.radioOn
@@ -666,6 +912,29 @@ export class Game {
   private useDoor(id: string): void {
     const door = this.world.doors.find((d) => d.id === id)
     if (!door) return
+    const behind = roomAt(
+      this.world,
+      this.sim.x - Math.sin(this.sim.yaw) * 0.9,
+      this.sim.z - Math.cos(this.sim.yaw) * 0.9,
+      this.sim.y,
+    )
+    const here = behind ?? roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    if (
+      door.id === 'door_rec_pat' &&
+      here?.id === 'reception' &&
+      !this.watchDone &&
+      hasItem(this.snap.inventory, 'key_gang')
+    ) {
+      this.openWatchAsk()
+      return
+    }
+    if (door.id === 'door_rec_pat' && here?.id === 'reception' && this.watchDone) this.markRecDoor()
+    const held = here ? roomDoorBlock(here.id, door.id, this.roomSnap()) : null
+    if (held) {
+      this.ui.presentMission()
+      if (!this.scareOffTheDoor(here?.id)) this.audio.play('locked', this.doorPos(door), { volume: 0.7 })
+      return
+    }
     if (doorBlocksNav(door, this.unlocked)) {
       if (door.id === EXIT_DOOR) {
         const blocked = gateBlock(this.snap)
@@ -683,12 +952,17 @@ export class Game {
         return
       }
       if (door.needsPower && !this.snap.flags.generatorOn) this.say('Låsen er død. Generatoren mangler strøm.')
+      else if (door.id === 'door_rec_pat' && !hasItem(this.snap.inventory, 'key_gang')) this.say('Låst. Svar på efterlysningen først.')
       else if (door.keyId === 'chapel_key' && !hasItem(this.snap.inventory, 'chapel_key')) this.say('Låst. Nøglen ligger på sygeplejerskekontoret.')
       else if (door.keyId === 'master_key' && !hasItem(this.snap.inventory, 'master_key')) this.say('Kræver hovednøglen fra pengeskabet.')
       else if (door.keyId && hasItem(this.snap.inventory, door.keyId) && (!door.needsPower || this.snap.flags.generatorOn)) {
         this.unlocked.add(door.id)
         this.desired.set(door.id, 1)
         this.bus.emit({ type: 'doorOpened', id: door.id })
+        if (door.id === 'door_rec_pat') {
+          this.stopDoorWeep()
+          this.beginHallFigure()
+        }
         this.audio.play('door', this.doorPos(door))
         this.noise('door')
         return
@@ -702,9 +976,17 @@ export class Game {
     const amt = this.open.get(door.id) ?? 0
     const opening = amt <= 0.4
     this.desired.set(door.id, opening ? 1 : 0)
-    if (opening) this.bus.emit({ type: 'doorOpened', id: door.id })
+    if (opening) {
+      this.bus.emit({ type: 'doorOpened', id: door.id })
+      if (door.id === 'door_rec_pat') this.beginHallFigure()
+    }
     this.audio.play('door', this.doorPos(door))
     this.noise('door')
+  }
+
+  private pickupVisible(id: string): boolean {
+    if (this.snap.pickedUp.includes(id)) return false
+    return !(id === 'letter_maja' && hasItem(this.snap.inventory, 'note_maja'))
   }
 
   private take(id: string): void {
@@ -722,6 +1004,7 @@ export class Game {
     if (mesh) mesh.visible = false
     this.runtime = this.runtime.filter((p) => p.id !== id)
     this.audio.play(found.itemId.startsWith('note') || found.itemId.startsWith('file') ? 'paper' : 'pickup')
+    this.showFound(found.itemId, res.slots.find((slot) => slot.itemId === found.itemId)?.count ?? 1)
     const def = itemDef(found.itemId)
     if (def.kind === 'note' || def.kind === 'story' || def.kind === 'map' || def.kind === 'collectible') this.openExamine(found.itemId)
     if (found.itemId === 'battery') {
@@ -765,12 +1048,93 @@ export class Game {
       this.say('Pengeskabet er tomt.')
       return
     }
+    this.codeFor = 'safe'
     this.code = ''
-    this.ui.keypad(this.code, hasItem(this.snap.inventory, 'note_code') ? 'Stiftelsesåret.' : 'Du kender ikke koden endnu.')
+    this.paintCodePad()
     this.setMode('keypad')
   }
 
+  private openBodyCode(): void {
+    if ((this.snap.events?.beats ?? []).includes('slag_code')) {
+      this.say('Boksen er allerede åben.')
+      return
+    }
+    if (!(this.snap.events?.beats ?? []).includes('slag_sheet')) {
+      this.say('Lagenet ligger stadig på sengen.')
+      return
+    }
+    this.codeFor = 'body'
+    this.code = ''
+    this.paintCodePad()
+    this.setMode('keypad')
+  }
+
+  private openHallCode(): void {
+    if (this.snap.readIds.includes('code_1243')) {
+      this.say('Koden er allerede indtastet. Gå hen til døren.')
+      return
+    }
+    this.codeFor = 'hall'
+    this.code = ''
+    this.paintCodePad()
+    this.setMode('keypad')
+  }
+
+  private paintCodePad(wrong = false): void {
+    const title = this.codeFor === 'safe' ? 'PENGESKAB' : 'KODEBOKS'
+    const hint = wrong
+      ? (this.codeFor === 'safe' ? 'Forkert. Lyden bar langt.' : 'Forkert.')
+      : this.codeFor === 'hall'
+        ? 'Koden fra væggen.'
+        : this.codeFor === 'body'
+          ? 'Tallet fra maven.'
+          : hasItem(this.snap.inventory, 'note_code') ? 'Stiftelsesåret.' : 'Du kender ikke koden endnu.'
+    this.ui.keypad(this.code, hint, title)
+  }
+
+  private inspectGurney(): void {
+    const beats = this.snap.events?.beats
+    if (beats && !beats.includes('op_gurney')) {
+      beats.push('op_gurney')
+      this.refreshObjective()
+    }
+    this.audio.play('paper', { x: 33.2, y: 1.1, z: 8.15 }, { volume: 0.35 })
+    this.say('Båren er tom. Lagenet er mørkt af blod.')
+  }
+
   submitCode(): void {
+    if (this.codeFor === 'body') {
+      if (this.code === BODY_CODE) {
+        const beats = this.snap.events?.beats
+        if (beats && !beats.includes('slag_code')) beats.push('slag_code')
+        this.bodyLidU = 0
+        if (this.bodyKeyMesh) this.bodyKeyMesh.visible = true
+        this.audio.play('key')
+        this.setMode('playing')
+        this.say('Låget giver sig. Nøglen ligger i boksen.')
+        this.refreshObjective()
+      } else {
+        this.audio.play('fail')
+        this.code = ''
+        this.paintCodePad(true)
+      }
+      return
+    }
+    if (this.codeFor === 'hall') {
+      if (this.code === HALL_CODE) {
+        if (!this.snap.readIds.includes('code_1243')) this.snap.readIds.push('code_1243')
+        this.audio.play('key')
+        this.setMode('playing')
+        this.say('Låsen giver sig.')
+        this.beginHallVeer()
+        this.refreshObjective()
+      } else {
+        this.audio.play('fail')
+        this.code = ''
+        this.paintCodePad(true)
+      }
+      return
+    }
     if (this.code === SAFE_CODE) {
       this.snap.flags.safeOpen = true
       if (!hasItem(this.snap.inventory, 'master_key')) this.snap.inventory = addItem(this.snap.inventory, 'master_key').slots
@@ -783,7 +1147,7 @@ export class Game {
       this.audio.play('fail')
       this.noise('door')
       this.code = ''
-      this.ui.keypad(this.code, 'Forkert. Lyden bar langt.')
+      this.paintCodePad(true)
     }
   }
 
@@ -815,11 +1179,259 @@ export class Game {
     this.sim.z = spot.z
     this.sim.vx = 0
     this.sim.vz = 0
-    this.audio.play('door', this.feet(), { volume: 0.3 })
-    this.say(spot.kind === 'bed' ? 'Under sengen. Hold Shift for at holde vejret.' : 'I skabet. Hold Shift for at holde vejret. E for at komme ud.')
+    if (spot.id !== 'hide_op') {
+      this.audio.play('door', this.feet(), { volume: 0.35 })
+      this.say(spot.kind === 'bed' ? 'Under sengen. Hold Shift for at holde vejret.' : 'Du klemmer dig ind. E for at gå ud.')
+      return
+    }
+    const room = this.world.rooms.find((item) => item.id === spot.room)
+    const mid = room ? room.z + room.d * 0.5 : spot.z + 1
+    this.closetYaw = spot.z < mid ? 0 : Math.PI
+    this.sim.yaw = this.closetYaw
+    this.sim.pitch = 0
+    this.sim.flashlightOn = false
+    this.closet = enterCloset(id)
+    this.closetLooked = false
+    this.closetRoar = false
+    this.closetPassHeard = false
+    this.whisperSlot = -1
+    this.snap.closet = this.closet
+    this.placeClosetBox(spot.x, spot.z)
+    this.viewmodel.visible = false
+    this.audio.play('door', this.feet(), { volume: 0.45 })
+    this.audio.hush(1.5)
+    this.say('Lågen lukker.')
+  }
+
+  private exitCloset(): void {
+    const spot = this.world.hides.find((item) => item.id === this.closet.hideId)
+    const room = spot ? this.world.rooms.find((item) => item.id === spot.room) : undefined
+    const dir = this.closetYaw === 0 ? 1 : -1
+    if (spot && room) {
+      const y = FLOOR_Y[room.floor]
+      let x = spot.x
+      let z = spot.z + dir * 0.95
+      if (sampleFloorY(this.world, x, z, y) === null) {
+        x = spot.x + 0.4
+        z = spot.z + dir * 0.7
+      }
+      this.sim.x = x
+      this.sim.y = y
+      this.sim.z = z
+    }
+    this.sim.vx = 0
+    this.sim.vz = 0
+    this.hiding = null
+    this.closet = leaveCloset(this.closet)
+    this.whisperSlot = -1
+    this.snap.closet = this.closet
+    if (this.closetBox) this.closetBox.visible = false
+    this.viewmodel.visible = true
+    this.parkAfterCloset(spot?.room)
+    this.bus.emit({ type: 'playerRevealed' })
+    if (this.closetQuiet || this.closetBedAt > 0) {
+      this.closetQuiet = false
+      this.closetBedAt = 0
+      this.audio.quiet(false)
+    }
+    this.audio.play('door', this.feet(), { volume: 0.4 })
+    this.say('Du træder ud.')
+  }
+
+  private stepCloset(dt: number): void {
+    if (this.closet.phase === 'idle') return
+    const stepped = stepCloset(this.closet, this.mode === 'playing' ? dt : 0)
+    this.closet = stepped.state
+    this.snap.closet = this.closet
+    for (const cue of stepped.cues) {
+      if (cue === 'face') {
+        if (this.snap.events) this.snap.events.hallCloset = true
+        this.closetBedAt = performance.now() + 1800
+      } else if (cue === 'free') {
+        this.say('Du kan åbne lågen.')
+        if (this.closet.hideId === 'hide_op') this.beginOpMission()
+      }
+    }
+    this.driveClosetPasser()
+    if (this.closetBedAt > 0 && performance.now() >= this.closetBedAt) {
+      this.closetBedAt = 0
+      this.closetQuiet = false
+      this.audio.quiet(false)
+    }
+    if (this.closet.phase === 'inside') {
+      this.sim.flashlightOn = false
+      this.viewmodel.visible = false
+    }
+    if (this.closet.phase === 'whispers') {
+      const slot = Math.floor((10 - this.closet.whisper) / 1.8)
+      if (slot !== this.whisperSlot) {
+        this.whisperSlot = slot
+        const right = rightFromYaw(this.sim.yaw)
+        const side = slot % 2 === 0 ? 1.3 : -1.3
+        this.audio.play('whisper', {
+          x: this.sim.x + right.x * side,
+          y: this.sim.y + 1.5,
+          z: this.sim.z + right.z * side,
+        }, { volume: 0.26 })
+      }
+    }
+  }
+
+  private driveClosetPasser(): void {
+    const pose = this.closet.phase === 'inside' ? passerPose(this.closet.locked) : null
+    if (!pose || pose.hidden) {
+      this.monster.presentSmile(0, 0)
+      this.monster.loomOver(0)
+      this.monster.group.rotation.x = 0
+      this.monster.group.scale.set(1, 1, 1)
+      if (pose?.hidden) {
+        const parked = this.world.hides.find((item) => item.id === this.closet.hideId)
+        const parkedRoom = parked ? this.world.rooms.find((item) => item.id === parked.room) : undefined
+        if (parked && parkedRoom) {
+          const floor = FLOOR_Y[parkedRoom.floor]
+          this.monster.pos = { x: parked.x, y: floor - 6, z: parked.z }
+          this.monster.group.position.set(parked.x, floor - 6, parked.z)
+          this.monster.group.visible = true
+        }
+        if (!this.closetQuiet) {
+          this.closetQuiet = true
+          this.audio.fadeQuiet(0.8)
+        }
+      }
+      if (!pose && this.closet.phase === 'inside' && this.closet.locked >= CLOSET_PASS_END) {
+        const spot = this.world.hides.find((item) => item.id === this.closet.hideId)
+        this.parkAfterCloset(spot?.room)
+      }
+      if (!pose?.hidden && !this.huntUnlocked()) this.monster.group.visible = false
+      return
+    }
+    const spot = this.world.hides.find((item) => item.id === this.closet.hideId)
+    const room = spot ? this.world.rooms.find((item) => item.id === spot.room) : undefined
+    if (!spot || !room) return
+    const facing = this.closetYaw === 0 ? 1 : -1
+    const lunging = pose.lunge > 0
+    const floor = FLOOR_Y[room.floor]
+    let x: number
+    let y: number
+    let z: number
+    if (lunging) {
+      // Drop from above the slit into its upper middle. Feet can sit in the locker floor.
+      const drop = pose.lunge
+      x = spot.x
+      y = floor + (0.7 * (1 - drop) - 0.09 * drop)
+      z = spot.z + facing * (1.12 - drop * 0.12)
+    } else {
+      const along = pose.along
+      x = spot.x - 1.7 + along * 3.4
+      y = floor
+      z = spot.z + facing * 1.2
+    }
+    this.monster.pos = { x, y, z }
+    this.monster.group.position.set(x, y, z)
+    this.monster.group.scale.setScalar(1)
+    this.monster.group.visible = true
+    this.monster.group.rotation.x = 0
+    const toward = this.closetYaw === 0 ? Math.PI : 0
+    this.monster.face(Math.PI / 2 + angDiff(Math.PI / 2, toward) * (lunging ? 1 : pose.face))
+    if (lunging) this.monster.loomOver(Math.min(1, pose.lunge * 1.45))
+    else {
+      this.monster.loomOver(0)
+      this.monster.presentSmile(pose.smile, pose.face)
+    }
+    if (lunging && pose.lunge >= 0.72 && !this.closetRoar) {
+      this.closetRoar = true
+      const at = this.closetMouth()
+      this.audio.play('hideScream', at, { volume: 1 })
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.62)
+    } else if (!lunging && pose.along > 0.18 && !this.closetPassHeard) {
+      this.closetPassHeard = true
+      this.audio.play('scream', { x, y: y + 1.5, z }, { volume: 0.62 })
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.2)
+    }
+    this.monster.bb.state = 'Patrol'
+    if (pose.face > 0.85 && !this.closetLooked) {
+      this.closetLooked = true
+      this.audio.play('whisper', { x, y: y + 1.5, z }, { volume: 0.16 })
+    }
+    if (pose.face < 0.2 && Math.floor(this.closet.locked * 2) !== Math.floor((this.closet.locked - 0.05) * 2)) {
+      this.audio.play('creak', { x, y: y + 0.2, z }, { volume: 0.18 })
+    }
+  }
+
+  private parkAfterCloset(roomId?: string): void {
+    const room = this.world.rooms.find((item) => item.id === roomId)
+    const y = room ? FLOOR_Y[room.floor] : 0
+    const x = room ? room.x + room.w - 1.4 : 46.2
+    const z = room ? room.z + 1.4 : 10.2
+    this.monster.pos = { x, y, z }
+    this.monster.group.position.set(x, y, z)
+    this.monster.bb.state = 'Patrol'
+  }
+
+  private closetMouth(): { x: number; y: number; z: number } {
+    const spot = this.world.hides.find((item) => item.id === this.closet.hideId)
+    const room = spot ? this.world.rooms.find((item) => item.id === spot.room) : undefined
+    const facing = this.closetYaw === 0 ? 1 : -1
+    return {
+      x: spot?.x ?? this.sim.x,
+      y: (room ? FLOOR_Y[room.floor] : this.sim.y) + 1.4,
+      z: (spot?.z ?? this.sim.z) + facing * 1.6,
+    }
+  }
+
+  private placeClosetBox(x: number, z: number): void {
+    if (!this.closetBox) return
+    const room = roomAt(this.world, x, z, this.sim.y)
+    this.closetBox.position.set(x, room ? FLOOR_Y[room.floor] : this.sim.y, z)
+    this.closetBox.rotation.y = this.closetYaw
+    this.closetBox.visible = true
+  }
+
+  private buildClosetBox(): THREE.Group {
+    const g = new THREE.Group()
+    const wood = new THREE.MeshStandardMaterial({
+      color: '#c4a07a',
+      emissive: '#5a3d28',
+      emissiveIntensity: 0.28,
+      roughness: 0.78,
+      side: THREE.BackSide,
+    })
+    const panel = (w: number, h: number, d: number, x: number, y: number, z: number) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wood)
+      mesh.position.set(x, y, z)
+      g.add(mesh)
+    }
+    panel(0.05, 1.9, 0.72, -0.32, 0.95, -0.02)
+    panel(0.05, 1.9, 0.72, 0.32, 0.95, -0.02)
+    panel(0.68, 0.05, 0.72, 0, 1.88, -0.02)
+    panel(0.68, 0.05, 0.72, 0, 0.04, -0.02)
+    panel(0.68, 1.9, 0.05, 0, 0.95, -0.36)
+    panel(0.68, 0.42, 0.04, 0, 1.64, 0.26)
+    panel(0.68, 0.42, 0.04, 0, 0.26, 0.26)
+    const lamp = new THREE.PointLight('#ffe4c4', 4.2, 4.8, 2)
+    lamp.position.set(0, 1.42, 0.05)
+    g.add(lamp)
+    const crack = new THREE.PointLight('#f3d7b6', 2.8, 3.6, 2)
+    crack.position.set(0, 1.05, 0.46)
+    g.add(crack)
+    g.visible = false
+    this.scene.add(g)
+    return g
+  }
+
+  private showFound(itemId: string, count: number): void {
+    const def = itemDef(itemId)
+    const important = def.kind === 'key' || def.kind === 'fuse' || def.kind === 'note' || def.kind === 'story' || def.kind === 'map'
+    this.ui.found(def.name, def.description, count, important)
+    this.foundT = important ? 3.2 : 2.3
   }
 
   private toggleFlash(): void {
+    if (this.closet.phase === 'inside') {
+      this.sim.flashlightOn = false
+      this.say('Lygten bliver i lommen.')
+      return
+    }
     if (this.sim.battery <= 1) {
       this.audio.play('fail')
       this.sim.flashlightOn = false
@@ -899,7 +1511,8 @@ export class Game {
   }
 
   private placeCamera(wish: { sprint: boolean }, dt = 1 / 60): void {
-    const targetEye = this.hiding && this.world.hides.find((h) => h.id === this.hiding)?.kind === 'bed' ? 0.32 : eyeHeight(this.sim.crouching || !!this.hiding)
+    const bed = this.hiding && this.world.hides.find((h) => h.id === this.hiding)?.kind === 'bed'
+    const targetEye = bed ? 0.32 : this.closet.phase === 'inside' ? 1.02 : eyeHeight(this.sim.crouching || !!this.hiding)
     this.cameraEye = dt >= 1 ? targetEye : smoothEyeHeight(this.cameraEye, targetEye, dt)
     const eye = this.cameraEye
     const speed = Math.hypot(this.sim.vx, this.sim.vz)
@@ -908,7 +1521,7 @@ export class Game {
     const r = rightFromYaw(this.sim.yaw)
     const tired = this.sim.stamina < 18 && this.settings.cameraShake ? (18 - this.sim.stamina) / 18 : 0
     const fatigue = Math.sin(performance.now() / 1000 * 1.7) * tired * 0.012
-    const shake = this.settings.cameraShake ? this.trauma * this.trauma : 0
+    const shake = (this.settings.cameraShake ? this.trauma * this.trauma : 0) + (this.coverLeft > 0 ? 0.55 : 0)
     this.camera.position.set(
       this.sim.x + r.x * Math.cos(this.bob) * amp + (Math.random() - 0.5) * shake * 0.12,
       this.sim.y + eye + Math.sin(this.bob * 2) * amp + fatigue + (Math.random() - 0.5) * shake * 0.08,
@@ -939,7 +1552,7 @@ export class Game {
     const flicker = on && band === 'critical' ? 0.7 + 0.12 * Math.sin(t * 1.3) : 1
     const dim = band === 'low' ? 0.72 : band === 'critical' ? 0.5 : 1
     const charge = Math.max(0.2, this.sim.battery / 100)
-    this.spot.intensity = on ? 53 * charge * dim * flicker : 0
+    this.spot.intensity = on ? 28 * charge * dim * flicker : 0
     const lamp = this.viewmodel.position
     this.spot.position.set(lamp.x, lamp.y + 0.02, lamp.z - 0.2)
     this.spot.target.position.set(lamp.x, lamp.y + 0.02, -12)
@@ -975,13 +1588,14 @@ export class Game {
     u.uDamage.value = this.damage
     u.uFade.value = this.fade
     u.uGrain.value = 0
-    u.uChroma.value = 0.08 + this.scares.fx.chroma * 0.05
+    u.uChroma.value = this.scares.fx.chroma > 0.2 ? 0.08 + this.scares.fx.chroma * 0.05 : 0
     u.uTime.value = t
     u.uLow.value = this.sim.health < 40 ? (40 - this.sim.health) / 40 : 0
     u.uFlash.value = 0 // V3: no sudden white screen flashes
     u.uBlur.value.set(this.camDir.x * blur, this.camDir.y * blur)
     if (this.mode === 'playing' && this.blackout <= 0) this.fade = Math.max(0, this.fade - dt * 0.45)
     this.trauma = Math.max(0, this.trauma - dt)
+    this.scareDim = Math.max(0, this.scareDim - dt * 0.32)
     this.flash = Math.max(0, this.flash - dt * 1.5)
     const fog = this.scene.fog as THREE.FogExp2
     fog.density = 0.025 + this.director.tension * 0.00007
@@ -1001,24 +1615,44 @@ export class Game {
         level *= fixtureFlicker(t, seed, this.settings.reduceFlicker)
       }
       if (this.snap.flags.radioOn && entry.def.room === 'personalerum') level *= 1.12
+      if (entry.def.room === 'patientgang') level *= 1.6
+      level *= 1 - this.scareDim * 0.5
       const shown = this.lampShown.get(entry.def.id)
-      if (shown !== undefined && dt > 0) level = shown + (level - shown) * (1 - Math.exp(-dt * 1.4))
+      const black = this.room2Dark
+      if (black) level = 0
+      else if (shown !== undefined && dt > 0) level = shown + (level - shown) * (1 - Math.exp(-dt * 1.4))
       this.lampShown.set(entry.def.id, level)
       if (entry.lens) entry.lens.emissiveIntensity = Math.max(0.012, level * 1.1)
       if (entry.light instanceof THREE.SpotLight || entry.light instanceof THREE.PointLight) {
-        entry.light.intensity = entry.base * level
+        entry.light.intensity = entry.light.visible ? entry.base * level : 0
       }
     }
-    const max = visibleLightCount(this.settings.quality)
-    const ranked = [...this.built.lights].sort(
-      (a, b) => Math.hypot(a.def.x - this.camera.position.x, a.def.z - this.camera.position.z) - Math.hypot(b.def.x - this.camera.position.x, b.def.z - this.camera.position.z),
-    )
-    ranked.forEach((entry, i) => {
-      const shown = i < max
-      entry.light.visible = shown
-      if (!shown) entry.light.intensity = 0
-    })
-    const near = ranked.find((entry) => entry.light.visible)
+    const cx = this.camera.position.x
+    const cz = this.camera.position.z
+    const moved = Math.hypot(cx - this.lightCamX, cz - this.lightCamZ) > 2.5
+    if (this.lightRankAt < 0 || t - this.lightRankAt > 0.45 || moved) {
+      this.lightRankAt = t
+      this.lightCamX = cx
+      this.lightCamZ = cz
+      const max = visibleLightCount(this.settings.quality)
+      const ranked = [...this.built.lights].sort(
+        (a, b) => Math.hypot(a.def.x - cx, a.def.z - cz) - Math.hypot(b.def.x - cx, b.def.z - cz),
+      )
+      const key = ranked.slice(0, max).map((entry) => entry.def.id).join('|')
+      if (key !== this.lightKey) {
+        this.lightKey = key
+        ranked.forEach((entry, i) => {
+          entry.light.visible = i < max
+          if (i >= max) entry.light.intensity = 0
+        })
+      }
+    }
+    const black = this.room2Dark
+    const dim = 1 - this.scareDim * 0.5
+    this.ambient.intensity = (black ? 0.004 : 0.028) * dim
+    this.hemi.intensity = (black ? 0.008 : 0.075) * dim
+    this.moon.intensity = (black ? 0.004 : 0.018) * dim
+    const near = this.built.lights.find((entry) => entry.light.visible)
     if (near && playing) {
       const dipped = near.light.intensity < near.base * 0.4
       this.audio.setHum(!dipped && this.lightLevel(near.def) > 0.2, { x: near.def.x, y: near.def.y, z: near.def.z })
@@ -1026,6 +1660,7 @@ export class Game {
   }
 
   private lightLevel(def: { mode: string }): number {
+    if (this.room2Dark) return 0
     if (def.mode === 'power') return this.snap.flags.generatorOn ? 1 : 0
     if (def.mode === 'secret') return this.snap.flags.secretOpen ? 1 : 0
     return 1
@@ -1050,6 +1685,7 @@ export class Game {
   }
 
   private tickRain(dt: number): void {
+    if (!this.built.rain.visible) return
     const attr = this.built.rain.geometry.getAttribute('position') as THREE.BufferAttribute
     const arr = attr.array as Float32Array
     for (let i = 0; i < arr.length; i += 3) {
@@ -1109,21 +1745,23 @@ export class Game {
       if (door.kind !== 'door') continue
       const p = this.doorPos(door)
       const openAmt = this.open.get(door.id) ?? 0
-      const locked = doorBlocksNav(door, this.unlocked)
+      const here = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+      const sealed = here ? roomDoorBlock(here.id, door.id, this.roomSnap()) : null
+      const locked = doorBlocksNav(door, this.unlocked) || !!sealed
       const prompt = locked ? 'Låst dør' : openAmt > 0.4 ? 'Luk dør' : 'Åbn dør'
       list.push({ id: door.id, kind: 'door', x: p.x, y: p.y + 1, z: p.z, radius: 1.15, prompt })
     }
     for (const p of this.world.pickups) {
-      if (this.snap.pickedUp.includes(p.id)) continue
+      if (!this.pickupVisible(p.id)) continue
       const room = this.world.rooms.find((r) => r.id === p.room)
       if (!room) continue
       list.push({
         id: p.id,
         kind: 'pickup',
         x: p.x,
-        y: FLOOR_Y[room.floor] + 0.8,
+        y: FLOOR_Y[room.floor] + (p.y ?? 0.8),
         z: p.z,
-        radius: 0.55,
+        radius: p.itemId === 'note_maja' ? 0.28 : 0.55,
         prompt: itemDef(p.itemId).name,
       })
     }
@@ -1163,6 +1801,51 @@ export class Game {
         prompt: prompts[d.kind],
       })
     }
+    list.push({
+      id: 'hall_code',
+      kind: 'hallcode',
+      x: 23.62,
+      y: 1.22,
+      z: 4.15,
+      radius: 0.7,
+      prompt: this.snap.readIds.includes('code_1243') ? 'Koden er indtastet' : 'Indtast koden',
+    })
+    const sheetDone = (this.snap.events?.beats ?? []).includes('slag_sheet')
+    const boxOpen = (this.snap.events?.beats ?? []).includes('slag_code')
+    if (!sheetDone && this.sheetU < 0) {
+      list.push({ id: 'sheet', kind: 'sheet', x: 40.2, y: 1.05, z: 7.55, radius: 1.15, prompt: 'for at trække lagenet af' })
+    }
+    if (sheetDone && !boxOpen) {
+      list.push({ id: 'body_box', kind: 'bodycode', x: 40.6, y: 1.05, z: 2.7, radius: 0.7, prompt: 'for at indtaste koden' })
+    }
+    if (boxOpen && !this.bodyKeyTaken) {
+      list.push({ id: 'body_key', kind: 'bodykey', x: 40.6, y: 1.12, z: 2.7, radius: 0.65, prompt: 'for at tage nøglen' })
+    }
+    if ((this.snap.events?.beats ?? []).includes('op_mission')) {
+      for (const plate of this.homoLetters) {
+        list.push({
+          id: plate.id,
+          kind: 'letter',
+          x: plate.x,
+          y: plate.y,
+          z: plate.z,
+          radius: 0.75,
+          prompt: plate.state === 'idle' ? 'for at aktivere' : 'for at slå farven fra',
+        })
+      }
+    }
+    const gurney = this.world.props.find((prop) => prop.id === 'op_table')
+    if (gurney) {
+      list.push({
+        id: gurney.id,
+        kind: 'gurney',
+        x: gurney.x,
+        y: 1.05,
+        z: gurney.z,
+        radius: 0.9,
+        prompt: 'Undersøg båren',
+      })
+    }
     list.push(...this.containers.candidates())
     for (const h of this.world.hides) {
       const room = this.world.rooms.find((r) => r.id === h.room)!
@@ -1172,7 +1855,7 @@ export class Game {
         x: h.x,
         y: FLOOR_Y[room.floor] + 1,
         z: h.z,
-        radius: 0.8,
+        radius: h.id === 'hide_op' ? 1.5 : 0.8,
         prompt: h.kind === 'bed' ? 'Gem dig under sengen' : 'Gem dig i skabet',
       })
     }
@@ -1185,28 +1868,55 @@ export class Game {
       : selectInteract(this.eyePos(), { x: this.camDir.x, y: this.camDir.y, z: this.camDir.z }, this.candidates())
     this.aimedDoor = hit?.kind === 'door' ? hit.id : ''
     const obj = currentObjective(this.snap)
-    if (obj.id !== this.lastObjective) {
-      if (this.lastObjective) {
-        this.toast = obj.text
-        this.toastT = 3.5
-        this.persist(0)
+    const here = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    const local = here ? roomMission(here.id, this.roomSnap()) : null
+    const stairRoom = !!here?.id.startsWith('trappe')
+    const shownId = local ? (local.done ? `${local.id}:door` : local.id) : stairRoom ? 'stair-go' : obj.id
+    const shownText = local
+      ? (local.done ? 'Gå hen til døren.' : local.text)
+      : stairRoom
+        ? 'Gå op ad trappen.'
+        : obj.text
+    const missionChanged = shownId !== this.lastShown && shownId !== ''
+    if (shownId !== this.lastShown) {
+      // The persistent card already shows the line. A second toast covered the view.
+      if (this.toast === shownText) {
+        this.toast = ''
+        this.toastT = 0
       }
-      this.lastObjective = obj.id
+      this.lastShown = shownId
     }
+    if (obj.id !== this.lastObjective) this.lastObjective = obj.id
     const files = fileCount(this.snap)
     this.ui.hud({
-      objective: obj.text,
+      objective: shownText,
+      missionRoom: here?.name ?? '',
+      missionNote: '',
       files: files ? `Journaler ${files}/${FILE_IDS.length}` : '',
-      prompt: this.messageT > 0 ? this.message : this.hiding ? 'Forlad gemmested' : hit ? hit.prompt : '',
+      prompt: this.messageT > 0 ? this.message : this.closet.phase === 'inside'
+        ? (canLeaveCloset(this.closet) ? 'Åbn lågen' : 'Du tør ikke åbne endnu...')
+        : this.hiding ? 'Forlad gemmested' : hit ? hit.prompt : '',
       stamina: this.sim.stamina,
       battery: this.sim.battery,
       batteryText: `${Math.round(this.sim.battery)}%${batteryBand(this.sim.battery) === 'critical' && this.sim.flashlightOn ? ' · lavt' : ''}`,
+      keys: MISSION_KEYS.filter((key) => hasItem(this.snap.inventory, key.id)).map((key) => key.id),
       low: this.sim.health < 40 || batteryBand(this.sim.battery) !== 'ok',
       lockHint: this.mode === 'playing' && !this.input.pointerLocked,
     })
+    this.ui.closetView(this.closet.phase === 'inside')
+    const filming = this.watchPhase === 'play' || this.watchPhase === 'fade' || this.watchPhase === 'creak' || this.watchPhase === 'quiet' || this.watchPhase === 'scare' || this.watchPhase === 'hold'
+    this.ui.shoutMission(!filming && local?.id === 'room_operations_hide' && !local.done && this.closet.phase !== 'inside')
+    if (filming) this.ui.hideMission()
+    else if (missionChanged) this.ui.presentMission()
+    else this.ui.showMission()
     this.ui.hurt(this.damage * 0.85 + (this.sim.health < 35 ? 0.25 : 0))
-    this.paintMap()
+    const nowMs = performance.now()
+    if (nowMs - this.mapAt > 140) {
+      this.mapAt = nowMs
+      this.paintMap()
+    }
     this.ui.toast(this.toastT > 0 ? this.toast : '')
+    if (this.foundT <= 0) this.ui.found('', '', 1, false)
     const dbg = this.audio.debug()
     this.ui.audioDebug(
       `Lyd ${dbg.state}  ${dbg.sampleRate} Hz\nStemmer ${dbg.voices}\n${dbg.failures.length ? `FEJL ${dbg.failures.join(' | ')}\n` : ''}${dbg.last.join('\n')}`,
@@ -1244,7 +1954,51 @@ export class Game {
     return true
   }
 
+  private huntUnlocked(): boolean {
+    return (this.snap.events?.slagter ?? 0) >= 4
+  }
+
+  private cachedPatrol(): { x: number; y: number; z: number }[] {
+    const key = `${this.floorAllowed(-1)}:${this.floorAllowed(0)}:${this.floorAllowed(1)}:${this.snap.flags.secretOpen}:${this.huntUnlocked()}`
+    if (key !== this.patrolKey) {
+      this.patrolKey = key
+      this.patrolCache = this.earlyPatrol(patrolPoints(this.world, (f) => this.floorAllowed(f), this.snap.flags.secretOpen))
+    }
+    return this.patrolCache
+  }
+
+  private cachedSearch(): { id: string; pos: { x: number; y: number; z: number } }[] {
+    if (!this.searchCache) {
+      this.searchCache = this.world.hides.map((hide) => {
+        const room = this.world.rooms.find((item) => item.id === hide.room)
+        return { id: hide.id, pos: { x: hide.x, y: room ? FLOOR_Y[room.floor] : 0, z: hide.z } }
+      })
+    }
+    return this.searchCache
+  }
+
+  /** Before the butcher sequence, Vogteren stays in that room and does not hunt. */
+  private earlyPatrol(points: { x: number; y: number; z: number }[]): { x: number; y: number; z: number }[] {
+    if (this.huntUnlocked()) return points
+    const kept = points.filter((point) => point.x >= 36 && point.x <= 48 && point.y < 2)
+    return kept.length ? kept : points
+  }
+
+  private holdGuardianBack(): void {
+    if (this.huntUnlocked() || passerAlong(this.closet.locked) !== null) return
+    const nearPlayer = Math.hypot(this.monster.pos.x - this.sim.x, this.monster.pos.z - this.sim.z) < 4
+    const outside = this.monster.pos.x < 36 || this.monster.pos.y > 2 || nearPlayer
+    if (outside) {
+      this.monster.pos = { x: 46.2, y: 0, z: 10.2 }
+      this.monster.group.position.set(46.2, 0, 10.2)
+    }
+    if (this.monster.bb.state === 'Chase' || this.monster.bb.state === 'Attack' || this.monster.bb.state === 'Investigate') {
+      this.monster.bb.state = 'Patrol'
+    }
+  }
+
   private computeChase(): boolean {
+    if (!this.huntUnlocked()) return false
     const dist = this.monsterDist()
     let allow = this.snap.playTime > 46 || hasItem(this.snap.inventory, 'note_code') || dist < 4.2
     if (this.director.suppress > 0 && dist > 2.6) allow = false
@@ -1270,6 +2024,7 @@ export class Game {
     )
     const at = { x: result.x, y: result.y, z: result.z }
     if (result.effect === 'opening' || result.effect === 'closing') {
+      if (result.effect === 'opening') this.markDrawerOpened(id)
       this.audio.play(result.kind === 'cabinet' ? 'door' : 'creak', at, { volume: 0.62 })
       this.noise('door', at)
       this.say(result.effect === 'opening'
@@ -1292,6 +2047,16 @@ export class Game {
     }
   }
 
+  /** Opening the drawer is the task. The battery inside does not open the next door. */
+  private markDrawerOpened(id: string): void {
+    const beat = id === 'obs_shelf_drawer' ? 'obs_cabinet' : ''
+    if (!beat) return
+    const beats = this.snap.events?.beats
+    if (!beats || beats.includes(beat)) return
+    beats.push(beat)
+    this.refreshObjective()
+  }
+
   private grantContainerItem(itemId: string): void {
     const res = addItem(this.snap.inventory, itemId, 1)
     if (!res.added) {
@@ -1302,12 +2067,10 @@ export class Game {
     const paper = itemId.startsWith('note') || itemId.startsWith('file')
     this.audio.play(paper ? 'paper' : itemId.startsWith('key') ? 'key' : 'pickup')
     const def = itemDef(itemId)
+    this.showFound(itemId, res.slots.find((slot) => slot.itemId === itemId)?.count ?? 1)
     if (def.kind === 'note' || def.kind === 'story' || def.kind === 'map' || def.kind === 'collectible') this.openExamine(itemId)
-    if (itemId === 'battery') {
-      this.sim.battery = boostBattery(this.sim.battery, 50)
-      this.say('Batteri. +50%.')
-    } else if (itemId.startsWith('fuse_')) this.say(`${def.name}.`)
-    else if (!paper) this.say(def.name)
+    if (itemId === 'battery') this.sim.battery = boostBattery(this.sim.battery, 50)
+    if (itemId === 'rosary') this.snap.rosaryCharges = 2
     this.bus.emit({ type: 'itemFound', id: itemId })
     this.refreshObjective()
   }
@@ -1370,6 +2133,7 @@ export class Game {
     this.snap.flags.introDone = true
     this.viewmodel.visible = true
     this.ui.hideIntro()
+    if (!hasItem(this.snap.inventory, 'note_maja')) this.say('Efterlysningen ligger på skranken.')
   }
 
   private newGame(): void {
@@ -1377,16 +2141,19 @@ export class Game {
     this.ended = false
     this.autosavedIntro = false
     this.lastObjective = ''
+    this.lastShown = ''
     this.fade = 1
     this.sim = simFrom(this.snap.player)
     this.unlocked = new Set(this.snap.doorsUnlocked)
     this.open.clear()
     this.desired.clear()
     this.hiding = null
+    this.closet = emptyCloset()
+    if (this.closetBox) this.closetBox.visible = false
     this.runtime.forEach((p) => p.mesh.visible = false)
     this.runtime = []
     this.containers.reset()
-    for (const [id, mesh] of this.built.pickups) mesh.visible = !this.snap.pickedUp.includes(id)
+    for (const [id, mesh] of this.built.pickups) mesh.visible = this.pickupVisible(id)
     this.monster.spawn(this.snap.monster, this.snap.monster.yaw, 'Patrol')
     this.director = createDirector()
     this.schedule = createSchedule()
@@ -1395,7 +2162,22 @@ export class Game {
     this.beginIntro()
     this.creepIn = 12
     this.scares.dismiss()
+    this.audio.useMenuBed(false)
     this.audio.beginScene()
+    this.audio.stopLeftCry()
+    this.hangPhase = 'off'
+    if (this.hangBody) this.hangBody.visible = false
+    if (this.hangRope) this.hangRope.visible = false
+    if (this.doorHangBody) this.doorHangBody.visible = false
+    if (this.doorHangRope) this.doorHangRope.visible = false
+    this.hangChase = 'off'
+    if (this.hangRunner) this.hangRunner.visible = false
+    this.hallLive = false
+    this.hallWalk = 0
+    if (this.hallLamp) this.hallLamp.intensity = 0
+    this.stairWait = -1
+    this.stairPlayed = false
+    this.resetWatch()
     this.built.mannequin.visible = false
     this.built.secretShelf.position.x = 37.32
     this.viewmodel.visible = true
@@ -1416,10 +2198,21 @@ export class Game {
       this.desired.set(id, 1)
     }
     this.hiding = null
+    this.closet = snap.closet?.phase === 'inside' || snap.closet?.phase === 'whispers' ? { ...emptyCloset(), ...snap.closet } : emptyCloset()
+    if (this.closet.phase === 'inside') {
+      this.hiding = this.closet.hideId
+      const spot = this.world.hides.find((item) => item.id === this.closet.hideId)
+      const room = spot ? this.world.rooms.find((item) => item.id === spot.room) : undefined
+      this.closetYaw = spot && room && spot.z >= room.z + room.d * 0.5 ? Math.PI : 0
+      if (spot) this.placeClosetBox(spot.x, spot.z)
+    } else if (this.closetBox) this.closetBox.visible = false
     this.containers.load(snap.containers)
+    if (!Number.isFinite(this.snap.hallWait)) this.snap.hallWait = -1
+    if (!Number.isInteger(this.snap.hallStep)) this.snap.hallStep = 0
+    this.armHallKnocks()
     if (!this.snap.readIds) this.snap.readIds = []
     this.settleLoadedBody()
-    for (const [id, mesh] of this.built.pickups) mesh.visible = !snap.pickedUp.includes(id)
+    for (const [id, mesh] of this.built.pickups) mesh.visible = this.pickupVisible(id)
     if (!snap.events) snap.events = emptyScript()
     this.monster.spawn(snap.monster, snap.monster.yaw, snap.monster.state)
     if (this.monsterDist() < 3) {
@@ -1439,7 +2232,22 @@ export class Game {
     this.introBeat = -1
     this.ui.hideIntro()
     this.scares.dismiss()
+    this.audio.useMenuBed(false)
     this.audio.beginScene()
+    this.audio.stopLeftCry()
+    this.hangPhase = 'off'
+    if (this.hangBody) this.hangBody.visible = false
+    if (this.hangRope) this.hangRope.visible = false
+    if (this.doorHangBody) this.doorHangBody.visible = false
+    if (this.doorHangRope) this.doorHangRope.visible = false
+    this.hangChase = 'off'
+    if (this.hangRunner) this.hangRunner.visible = false
+    this.hallLive = false
+    this.hallWalk = 0
+    if (this.hallLamp) this.hallLamp.intensity = 0
+    this.stairWait = -1
+    this.stairPlayed = false
+    this.resetWatch()
     this.setMode('playing')
     this.audio.ensure()
     this.bus.emit({ type: 'saveLoaded', slot: -1 })
@@ -1511,17 +2319,31 @@ export class Game {
     } else if (previous !== 'playing' && !this.testMode && this.introTime < 0) {
       this.input.lock()
     }
+    if (mode === 'menu' || mode === 'credits' || mode === 'exit') this.audio.useMenuBed(true)
+    else if (mode === 'playing') this.audio.useMenuBed(false)
     const screen = mode === 'paused' ? 'pause' : mode
     this.ui.show(screen === 'playing' ? 'playing' : screen)
     if (this.introTime >= 0) {
       this.viewmodel.visible = false
       this.ui.cinematic(true)
     }
-    this.audio.duck(mode !== 'playing' && mode !== 'menu')
+    const tape = this.watchPhase === 'play'
+    if (tape && this.tapeVideo) {
+      if (mode === 'playing') void this.tapeVideo.play().catch(() => undefined)
+      else this.tapeVideo.pause()
+    }
+    this.audio.duck((mode !== 'playing' && mode !== 'menu') || tape)
     if (mode === 'inventory') this.refreshInv()
+    const dense = (name: Mode) => name === 'playing' || name === 'examine' || name === 'inventory'
+    if (dense(previous) !== dense(mode)) this.resize()
   }
 
   private applyModalKeys(): void {
+    if (this.watchPhase === 'ask') {
+      this.input.discard(GAMEPLAY_EDGES)
+      if (this.input.takeFirst(['Escape'])) this.declineWatch()
+      return
+    }
     const focused = this.input.formFocused()
     if (this.mode !== 'playing' || focused || this.introTime >= 0) this.input.discard(GAMEPLAY_EDGES)
     if (this.introTime >= 0 && !focused) {
@@ -1551,7 +2373,7 @@ export class Game {
   private refreshInv(): void {
     const items = this.snap.inventory.map((s) => {
       const d = itemDef(s.itemId)
-      return { name: d.name, count: s.count, desc: d.description }
+      return { name: d.name, count: s.count, desc: d.description, kind: d.kind }
     })
     if (this.invIndex >= items.length) this.invIndex = 0
     this.ui.keysLine(`Nøgler fundet: ${keysFound(this.snap)}/3`)
@@ -1571,8 +2393,239 @@ export class Game {
         .map((r) => `<i class="${this.snap.visited.includes(r.id) ? 'on' : ''}">${r.name}</i>`)
         .join('')
     }
-    this.ui.examine(def, map)
+    const ask = itemId === 'note_maja' && !hasItem(this.snap.inventory, 'key_gang')
+    if (ask && this.snap.hallWait < 0) {
+      this.snap.hallWait = 0
+      this.snap.hallStep = 0
+      this.armHallKnocks()
+    }
+    this.ui.examine(def, map, ask)
+    if (ask) this.ui.ask(this.hallQuestion(), this.snap.hallStep, HALL_QUESTIONS.length)
     this.setMode('examine')
+  }
+
+  private hallQuestion() {
+    return HALL_QUESTIONS[Math.min(this.snap.hallStep, HALL_QUESTIONS.length - 1)]
+  }
+
+  private armHallKnocks(): void {
+    if (this.snap.hallWait < HALL_KNOCK_DELAY) this.hallKnockNext = HALL_KNOCK_DELAY
+    else this.hallKnockNext = this.snap.hallWait + hallKnockLevel(this.snap.hallWait).gap
+  }
+
+  private hallOpen(): boolean {
+    return this.snap.hallWait >= 0 && !hasItem(this.snap.inventory, 'key_gang')
+  }
+
+  /** After the letter is answered, the door knocks while someone cries quietly behind it. */
+  private stepDoorWeep(dt: number): void {
+    if (!this.wantsDoorWeep()) {
+      if (this.doorWeep) this.stopDoorWeep()
+      return
+    }
+    const at = this.knockFromDoor('reception')
+    if (!this.doorWeep) {
+      this.doorWeep = true
+      this.doorKnockAt = 0.4
+    }
+    this.audio.startSoftCry(at)
+    this.doorKnockAt -= dt
+    if (this.doorKnockAt > 0) return
+    this.hearFromHere()
+    this.audio.play('knock', at, { volume: 1.02, rate: 0.93 + Math.random() * 0.06 })
+    this.doorKnockAt = 2.15 + Math.random() * 1.15
+  }
+
+  private wantsDoorWeep(): boolean {
+    if (!hasItem(this.snap.inventory, 'key_gang')) return false
+    if (this.unlocked.has('door_rec_pat')) return false
+    if (this.watchPhase !== 'off') return false
+    if (this.hiding) return false
+    const room = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    if (room?.id !== 'reception') return false
+    const door = this.world.doors.find((item) => item.id === 'door_rec_pat')
+    if (!door) return false
+    const at = this.doorPos(door)
+    const dx = at.x - this.sim.x
+    const dz = at.z - this.sim.z
+    const dist = Math.hypot(dx, dz)
+    if (dist > 7.2 || dist < 0.35) return false
+    if (dist < 3.4) return true
+    const moving = Math.hypot(this.sim.vx, this.sim.vz) > 0.25
+    const toward = (Math.sin(this.sim.yaw) * dx + Math.cos(this.sim.yaw) * dz) / dist
+    return moving && toward > 0.4
+  }
+
+  private stopDoorWeep(): void {
+    this.doorWeep = false
+    this.doorKnockAt = 0
+    this.audio.stopSoftCry()
+  }
+
+  private stepHallKnocks(dt: number): void {
+    const room = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    if (room?.id !== 'reception') return
+    this.snap.hallWait += Math.max(0, dt)
+    if (this.snap.hallWait < this.hallKnockNext) return
+    const knocking = Math.max(0, this.snap.hallWait - HALL_KNOCK_DELAY)
+    const level = hallKnockLevel(knocking)
+    const at = this.knockFromDoor('reception')
+    this.hearFromHere()
+    if (level.pause) this.audio.play('breath', at, { volume: 0.22 })
+    else this.audio.play('knock', at, { volume: level.volume, rate: 0.97 + Math.random() * 0.06 })
+    this.hallKnockNext = this.snap.hallWait + level.gap
+  }
+
+  /** A knock sits on the room's own door, just inside the leaf. */
+  private knockFromDoor(roomId: string): { x: number; y: number; z: number } {
+    const id = roomOnwardDoor(roomId)
+    const door = (id ? this.world.doors.find((item) => item.id === id) : undefined)
+      ?? this.world.doors.find((item) => item.a === roomId || item.b === roomId)
+    if (!door) return { x: this.sim.x, y: this.sim.y + 1.3, z: this.sim.z }
+    const at = this.doorPos(door)
+    const dx = this.sim.x - at.x
+    const dz = this.sim.z - at.z
+    const len = Math.hypot(dx, dz) || 1
+    const pull = Math.min(0.42, len * 0.45)
+    return { x: at.x + (dx / len) * pull, y: at.y + 0.28, z: at.z + (dz / len) * pull }
+  }
+
+  private hearFromHere(): void {
+    this.camera.getWorldDirection(this.camDir)
+    this.audio.setListener(
+      { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z },
+      { x: this.camDir.x, y: this.camDir.y, z: this.camDir.z },
+      { x: 0, y: 1, z: 0 },
+    )
+  }
+
+  /** Shut every door of the current room until its task is finished. */
+  private sealMissionDoors(): void {
+    if (this.passKind === 'stare') return
+    if (this.hangPhase === 'flee' && !this.hangFleeShut) return
+    const room = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    if (!room) return
+    for (const id of roomSealedDoors(room.id, this.roomSnap())) {
+      const door = this.world.doors.find((item) => item.id === id)
+      if (!door) continue
+      const at = this.doorPos(door)
+      if (Math.hypot(at.x - this.sim.x, at.z - this.sim.z) < 0.55) continue
+      if (id === 'door_rec_pat' && this.hangChase === 'run') continue
+      if (id === 'door_pers_trappe' && this.stairPhase === 'run') continue
+      if ((this.desired.get(id) ?? 0) > 0 || (this.open.get(id) ?? 0) > 0.02) this.desired.set(id, 0)
+    }
+  }
+
+  private roomSnap(): RoomSnap {
+    return {
+      inventory: this.snap.inventory,
+      readIds: this.snap.readIds,
+      pickedUp: this.snap.pickedUp,
+      containers: this.snap.containers,
+      beats: this.snap.events?.beats ?? [],
+    }
+  }
+
+  /** The search in the operating room starts when the locker can open. Door knocks stay in room 1. */
+  private beginOpMission(): void {
+    const beats = this.snap.events?.beats
+    if (!beats || beats.includes('op_mission')) return
+    beats.push('op_mission')
+    this.opKnockWait = 0
+    this.opKnockNext = 10
+  }
+
+  private stepOpKnocks(dt: number): void {
+    const started = (this.snap.events?.beats ?? []).includes('op_mission')
+    if (!started || this.snap.pickedUp.includes('bat_op')) {
+      this.opKnockWait = -1
+      return
+    }
+    if (this.opKnocksCut) return
+    if (this.opKnockWait < 0) {
+      this.opKnockWait = 0
+      this.opKnockNext = 10
+    }
+    this.opKnockWait += Math.max(0, dt)
+    if (this.opKnockWait < this.opKnockNext) return
+    const level = hallKnockLevel(Math.max(0, this.opKnockWait - HALL_KNOCK_DELAY))
+    this.opKnockNext = this.opKnockWait + level.gap
+  }
+
+  /** After the battery is found, running steps and a scream follow behind. Nothing is shown. */
+  private stepOpChase(dt: number): void {
+    if (this.opChaseLeft > 0) {
+      this.opChaseLeft = Math.max(0, this.opChaseLeft - dt)
+      const lookX = Math.sin(this.sim.yaw)
+      const lookZ = Math.cos(this.sim.yaw)
+      const close = this.opChaseHard ? 3.15 - (1 - this.opChaseLeft / 3) * 2.2 : 1.7
+      this.audio.followChase({
+        x: this.sim.x - lookX * close,
+        y: this.sim.y + 0.15,
+        z: this.sim.z - lookZ * close,
+      })
+    }
+    if (this.opChasePlayed || !this.snap.pickedUp.includes('bat_op')) return
+    if (this.hiding || this.closet.phase === 'inside') return
+    const room = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    if (room?.id !== 'operationsstue') return
+    const dx = 36 - this.sim.x
+    const dz = 6 - this.sim.z
+    const dist = Math.hypot(dx, dz) || 1
+    const fx = Math.sin(this.sim.yaw)
+    const fz = Math.cos(this.sim.yaw)
+    const moving = Math.hypot(this.sim.vx, this.sim.vz) > 0.35
+    if (!moving || (fx * dx + fz * dz) / dist < 0.45) return
+    const behind = { x: this.sim.x - fx * 1.7, y: this.sim.y + 0.15, z: this.sim.z - fz * 1.7 }
+    if (!this.audio.playChaseSteps(behind, false)) return
+    this.opChasePlayed = true
+    this.opChaseHard = false
+    this.opChaseLeft = 3
+    this.audio.play('scream', { x: behind.x, y: this.sim.y + 1.45, z: behind.z }, { volume: 1 })
+  }
+
+  /** Trying the locked door while it knocks cuts the knocks and starts the chase. */
+  private scareOffTheDoor(roomId?: string): boolean {
+    if (roomId !== 'operationsstue' || this.opChasePlayed) return false
+    if (!this.opKnocksCut && this.opKnockWait < HALL_KNOCK_DELAY) return false
+    if (this.snap.pickedUp.includes('bat_op')) return false
+    if (!(this.snap.events?.beats ?? []).includes('op_mission')) return false
+    this.opKnocksCut = true
+    this.audio.cutOneShots()
+    const fx = Math.sin(this.sim.yaw)
+    const fz = Math.cos(this.sim.yaw)
+    const behind = { x: this.sim.x - fx * 3.1, y: this.sim.y + 0.2, z: this.sim.z - fz * 3.1 }
+    if (!this.audio.playChaseSteps(behind, true)) return true
+    this.opChasePlayed = true
+    this.opChaseHard = true
+    this.opChaseLeft = 3
+    this.audio.play('scream', { x: behind.x, y: this.sim.y + 1.5, z: behind.z }, { volume: 1.15 })
+    return true
+  }
+
+  private answerHall(choice: string): void {
+    if (hasItem(this.snap.inventory, 'key_gang')) return
+    const question = this.hallQuestion()
+    if (choice !== question.answer) {
+      this.audio.play('knock', { x: 12, y: 1.3, z: 6 }, { volume: 1.6, rate: 1 })
+      this.hallKnockNext = this.snap.hallWait
+      this.say('Det står på efterlysningen. Læs den igen.')
+      return
+    }
+    if (this.snap.hallStep < HALL_QUESTIONS.length - 1) {
+      this.snap.hallStep += 1
+      this.ui.ask(this.hallQuestion(), this.snap.hallStep, HALL_QUESTIONS.length)
+      this.say('Det passer.')
+      return
+    }
+    const res = addItem(this.snap.inventory, 'key_gang', 1)
+    this.snap.inventory = res.slots
+    this.snap.hallWait = -1
+    this.ui.ask(null)
+    this.showFound('key_gang', 1)
+    this.audio.play('key')
+    this.say('Nøglen er din. Døren til patientgangen kan åbnes.')
+    this.refreshObjective()
   }
 
   private stepRoomTone(room: ReturnType<typeof roomAt>, dt: number): void {
@@ -1659,23 +2712,118 @@ export class Game {
     const openAmt = hit && hit.kind === 'door' ? (this.open.get(hit.id) ?? 0) : 0
     const atDoor = !!hit && hit.kind === 'door' && openAmt > 0.55 && hit.id !== EXIT_DOOR
     const fig = this.butcher.position
-    const toFig = new THREE.Vector3(fig.x - this.camera.position.x, 0, fig.z - this.camera.position.z).normalize()
+    const toFig = new THREE.Vector3(fig.x - this.camera.position.x, fig.y + 1.5 - this.camera.position.y, fig.z - this.camera.position.z)
+    const figDist = Math.max(0.001, toFig.length())
+    const lookingAtFigure = (this.camDir.x * toFig.x + this.camDir.y * toFig.y + this.camDir.z * toFig.z) / figDist > 0.62
+    const lamp = this.sim.flashlightOn && this.sim.battery > 0
+    const onFigure = lamp && flashlightBanishes(
+      true,
+      this.eyePos(),
+      { x: this.camDir.x, y: this.camDir.y, z: this.camDir.z },
+      { x: fig.x, y: fig.y + 1.5, z: fig.z },
+      activeColliders(this.world, this.unlocked, this.open),
+    )
+    this.beamHold = onFigure ? this.beamHold + dt : 0
     const lookedAway = this.camDir.x * toFig.x + this.camDir.z * toFig.z < 0.25
     const stepped = stepScript(this.snap.events, {
       dt,
       time: this.snap.playTime,
       room,
       prevRoom: this.prevRoom,
-      flashlight: this.sim.flashlightOn,
+      flashlight: lamp,
       prevFlash: this.prevFlash,
       lookedAway: this.snap.events.slagter === 2 && lookedAway,
       atDoor,
+      powerCut: this.snap.flags.powerCut,
+      lookingAtFigure: this.snap.events.slagter === 2 && lookingAtFigure,
+      beam: this.snap.events.slagter === 3 && this.beamHold > 0.28,
     })
-    this.maybePeek(hit)
+    if (this.huntUnlocked()) this.maybePeek(hit)
     this.snap.events = stepped.state
+    if (room === 'operationsstue' && this.prevRoom !== room && !(this.snap.events.beats ?? []).includes('op_cover')) {
+      if (!this.snap.events.beats) this.snap.events.beats = []
+      this.snap.events.beats.push('op_cover')
+      this.peek.visible = false
+      this.passT = 0
+      this.say('Gem dig i skabet.')
+      this.ui.shoutMission(true)
+      this.ui.presentMission()
+    }
+    if (room === 'slagterum') {
+      this.peek.visible = false
+      this.passT = 0
+      this.butcher.visible = false
+      if (!this.huntUnlocked()) this.monster.group.visible = false
+    }
+    if (room.startsWith('trappe') && !this.stairPlayed && this.stairWait < 0 && room !== this.prevRoom) {
+      this.stairWait = 3
+    }
+    if (this.stairWait >= 0) {
+      if (!room.startsWith('trappe')) this.stairWait = -1
+      else {
+        this.stairWait = Math.max(0, this.stairWait - dt)
+        if (this.stairWait === 0) {
+          const played = this.audio.playClip('stairGhost', { x: this.sim.x, y: this.sim.y + 4.2, z: this.sim.z }, 1.7)
+          if (played > 0) {
+            this.stairPlayed = true
+            this.stairWait = -1
+          } else this.stairWait = 0.35
+        }
+      }
+    }
+    this.stepStairGrin(dt)
+    this.stepSheet(dt)
+    if (this.prevRoom && room && this.prevRoom !== room) this.slamEntered(this.prevRoom, room)
+    this.stepPendingSlam()
     this.prevRoom = room
     this.prevFlash = this.sim.flashlightOn
-    for (const cue of stepped.cues) this.fireCue(cue, hit?.id)
+    for (const cue of stepped.cues) {
+      if (room === 'slagterum' && (cue === 'shadow' || cue.startsWith('pass'))) continue
+      if (room === 'patientgang' && cue === 'shadow') continue
+      this.fireCue(cue, hit?.id)
+    }
+    this.stepPasser(dt)
+    if (room === 'patientgang') {
+      this.peek.visible = false
+      this.butcher.visible = false
+      this.shadowMesh.visible = false
+      this.shadowT = 0
+      if (this.passKind !== 'stare') this.passT = 0
+    }
+    if (room === 'operationsstue' && this.closet.phase !== 'inside') {
+      this.peek.visible = false
+      if (this.passKind !== 'stare') this.passT = 0
+    }
+    if (room === 'slagterum') {
+      this.peek.visible = false
+      this.passT = 0
+      this.butcher.visible = false
+      this.shadowT = 0
+      this.shadowMesh.visible = false
+      if (!this.huntUnlocked()) this.monster.group.visible = false
+    }
+    this.stepHang(dt)
+    const hall = stepHallDark(this.snap.events, dt, room)
+    this.snap.events = hall.state
+    this.room2Dark = hall.state.hallDark > 0 && room === 'patientgang'
+    if (hall.cue === 'out') {
+      this.sim.flashlightOn = false
+      this.butcher.visible = false
+      this.audio.play('metallic', { x: this.sim.x, y: this.sim.y + 1, z: this.sim.z }, { volume: 0.7 })
+    } else if (hall.cue === 'back') {
+      this.audio.play('metallic', { x: this.sim.x, y: this.sim.y + 1, z: this.sim.z }, { volume: 0.22 })
+    }
+    if (this.coverLeft > 0) {
+      this.coverLeft = Math.max(0, this.coverLeft - dt)
+      this.trauma = Math.max(this.trauma, 0.72)
+      if (this.coverLeft === 0) {
+        if (!this.snap.events.beats.includes('op_cover')) this.snap.events.beats.push('op_cover')
+        this.say('Gem dig i skabet.')
+        this.ui.shoutMission(true)
+        this.ui.presentMission()
+      }
+    }
+    this.stepButcherCharge(dt)
     if (stepped.cues.some((cue) => cue.startsWith('jump') || cue === 'figure')) {
       this.schedule = markRecovery(this.schedule, this.snap.playTime, 20)
       this.director = { ...this.director, suppress: Math.max(this.director.suppress, 6) }
@@ -1726,7 +2874,7 @@ export class Game {
       this.lightCut.set('reception_1', this.snap.playTime + 1.15)
       this.lightCut.set('reception_2', this.snap.playTime + 1.9)
       this.audio.play('door', { x: 14, y: 0, z: 6 }, { volume: 0.45, occluded: true })
-      this.caption('Majas brev peger mod arkivet.', 2.4)
+      this.caption('Efterlysningen peger videre ind i huset.', 2.4)
       return
     }
     if (id === 'arkiv_names') {
@@ -1753,12 +2901,64 @@ export class Game {
   }
 
   private fireCue(cue: string, doorId?: string): void {
-    if (cue.startsWith('jump:')) {
-      this.lungeT = 2
-      this.lunge.visible = true
-      this.trauma = 1
-      this.audio.play('scream')
-      this.say('Noget var lige foran dig.')
+    if (cue === 'pass:patient') {
+      if (!this.hallLive && !this.snap.events?.hallDoor) {
+        this.beginHallFigure()
+        this.audio.play('whisper', this.passFrom, { volume: 0.45 })
+      }
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.16)
+      return
+    }
+    if (cue === 'pass:operation') {
+      this.peek.visible = false
+      this.passT = 0
+      return
+    }
+    if (cue === 'archive') {
+      this.passFrom.set(3.1, 4, 9.6)
+      this.passTo.set(8.8, 4, 9.6)
+      this.passKind = 'cross'
+      this.passT = 1.35
+      this.peek.scale.set(1, 1.05, 1)
+      this.peek.position.copy(this.passFrom)
+      this.peek.visible = true
+      this.audio.play('paper', { x: 6, y: 5, z: 8.4 }, { volume: 0.8 })
+      this.audio.play('whisper', { x: 6, y: 5.4, z: 8.4 }, { volume: 0.5 })
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.28)
+      this.say('Noget bevægede sig mellem reolerne.')
+      return
+    }
+    if (cue === 'blackout') {
+      this.butcher.position.set(42, 0, 2.4)
+      this.butcher.visible = false
+      this.butcherHit = false
+      this.beamHold = 0
+      this.audio.play('metallic', { x: 42, y: 1, z: 6 }, { volume: 0.55 })
+      return
+    }
+    if (cue === 'await-turn') {
+      this.audio.play('deep', { x: 42, y: 1.2, z: 2.4 }, { volume: 0.45 })
+      return
+    }
+    if (cue === 'charge') {
+      this.butcher.visible = true
+      this.butcher.position.set(42, 0, 2.4)
+      this.butcherRoar = 2
+      return
+    }
+    if (cue === 'banish') {
+      this.butcher.visible = false
+      this.audio.play('whisper', { x: this.butcher.position.x, y: 1.4, z: this.butcher.position.z }, { volume: 0.4 })
+      this.say('Lyset jog den væk.')
+      return
+    }
+    if (cue === 'strike') {
+      if (!this.butcherHit) {
+        this.butcherHit = true
+        this.hurt(18, false)
+      }
+      this.butcher.visible = false
+      this.say('Den ramte dig og var væk.')
       return
     }
     if (cue === 'silence') {
@@ -1886,8 +3086,1536 @@ export class Game {
     }
   }
 
+  /**
+   * The dark hunter crosses the doorway and runs to the far right corner.
+   * It does not attack until the room task is done and the player is at the next door.
+   */
+  private beginHallFigure(): void {
+    if (this.hallLive || this.snap.events?.hallDoor) return
+    this.passKind = 'stare'
+    this.passPhase = 'pass'
+    this.passClock = 0
+    this.passStep = 0
+    this.passT = 1
+    this.hallStop = 0
+    this.runScreamed = false
+    this.hallLive = true
+    this.hallWalk = 3.6
+    this.monster.bb.state = 'Patrol'
+    this.monster.group.scale.setScalar(1)
+    this.peek.visible = false
+    this.butcher.visible = false
+    this.hallStops = [
+      new THREE.Vector3(15.4, 0, 4.15),
+      new THREE.Vector3(19.1, 0, 3.85),
+      new THREE.Vector3(23.15, 0, 1.05),
+    ]
+    this.placeHallMonster(13.15, 10.7, 0)
+  }
+
+  /** Compile the hall once behind the loading screen. Extra full-frame renders were closing the graphics driver. */
+  private warmHall(): void {
+    const pos = this.camera.position.clone()
+    const quat = this.camera.quaternion.clone()
+    const monsterVis = this.monster.group.visible
+    const parked = this.monster.group.position.clone()
+    this.monster.group.visible = true
+    this.monster.group.position.set(12, 0, 6)
+    this.monster.loomOver(1)
+    this.camera.position.set(10.2, 1.6, 6)
+    this.camera.lookAt(16, 1.4, 6)
+    this.camera.updateMatrixWorld()
+    this.renderer.compile(this.scene, this.camera)
+    this.monster.loomOver(0)
+    this.monster.group.position.copy(parked)
+    this.monster.group.visible = monsterVis
+    this.camera.position.copy(pos)
+    this.camera.quaternion.copy(quat)
+    this.camera.updateMatrixWorld()
+  }
+
+  private hallMissionDone(): boolean {
+    return roomMission('patientgang', this.roomSnap())?.done === true
+  }
+
+  private placeHallMonster(x: number, z: number, yaw: number): void {
+    this.monster.pos = { x, y: 0, z }
+    this.monster.yaw = yaw
+    this.monster.group.position.set(x, 0, z)
+    this.monster.group.rotation.y = yaw
+    this.monster.group.visible = true
+    this.peek.visible = false
+  }
+
+  private faceHallMonster(): void {
+    const dx = this.sim.x - this.monster.pos.x
+    const dz = this.sim.z - this.monster.pos.z
+    this.placeHallMonster(this.monster.pos.x, this.monster.pos.z, Math.atan2(dx, dz))
+  }
+
+  private moveHallMonster(target: THREE.Vector3, speed: number, dt: number): boolean {
+    const dx = target.x - this.monster.pos.x
+    const dz = target.z - this.monster.pos.z
+    const dist = Math.hypot(dx, dz)
+    const yaw = Math.atan2(dx, dz)
+    if (dist < 0.08) {
+      this.placeHallMonster(target.x, target.z, yaw)
+      return true
+    }
+    const step = Math.min(dist, speed * dt)
+    this.placeHallMonster(this.monster.pos.x + (dx / dist) * step, this.monster.pos.z + (dz / dist) * step, yaw)
+    return false
+  }
+
+  private parkHallMonster(): void {
+    this.hallLive = false
+    this.hallWalk = 0
+    this.passPhase = 'stand'
+    if (this.hallLamp) this.hallLamp.intensity = 0
+    this.monster.bb.state = 'Patrol'
+    this.monster.group.scale.setScalar(1)
+    this.monster.group.visible = false
+    this.monster.pos = { x: 46.2, y: 0, z: 10.2 }
+    this.monster.group.position.set(46.2, 0, 10.2)
+  }
+
+  /** After the code: left across the hall, down toward the entrance, then the sprint. */
+  private beginHallVeer(): void {
+    if (!this.hallLive) return
+    if (this.passPhase === 'veer' || this.passPhase === 'run' || this.passPhase === 'face') return
+    this.passPhase = 'veer'
+    this.passClock = 0
+    this.hallStop = 0
+    this.hallWalk = 4.2
+    this.hallStops = [
+      new THREE.Vector3(16.6, 0, 9.05),
+      new THREE.Vector3(13.7, 0, 4.7),
+    ]
+    this.monster.bb.state = 'Chase'
+    this.monster.group.visible = true
+  }
+
+  private beginHallCharge(): void {
+    this.passPhase = 'run'
+    this.passClock = 0
+    this.passStep = 0
+    this.runScreamed = false
+    this.hallWalk = 4.2
+    this.monster.bb.state = 'Chase'
+    this.runFrom.set(this.monster.pos.x, 0, this.monster.pos.z)
+  }
+
+  /** Same forced look as the reception chase, aimed at the hall hunter. */
+  private aimAtHallMonster(): void {
+    const dx = this.monster.pos.x - this.sim.x
+    const dz = this.monster.pos.z - this.sim.z
+    const dist = Math.hypot(dx, dz) || 0.001
+    this.sim.yaw = Math.atan2(dx, dz)
+    const eye = this.sim.y + 1.62
+    this.sim.pitch = Math.max(-0.35, Math.min(0.2, Math.atan2(1.5 - eye, dist)))
+  }
+
+  /** A short lamp on the hunter, only while room 2 is dark and this sequence is playing. */
+  private lightHallFigure(): void {
+    if (!this.hallLamp) return
+    const here = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    const lamp = this.sim.flashlightOn && this.sim.battery > 0.2
+    const charging = this.passPhase === 'run' || this.passPhase === 'face'
+    const dark = this.hallLive && here?.id === 'patientgang' && charging && !lamp
+    this.hallLamp.intensity = dark ? 1.15 : 0
+    this.hallLamp.visible = true
+    this.hallLamp.position.set(this.monster.pos.x, this.monster.pos.y + 1.6, this.monster.pos.z)
+    if (dark === this.hallLit) return
+    this.hallLit = dark
+    this.monster.group.traverse((obj) => {
+      const mesh = obj as THREE.Mesh
+      if (!mesh.isMesh) return
+      const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+      for (const mat of list) {
+        if (!(mat instanceof THREE.MeshStandardMaterial)) continue
+        const data = mat.userData as { hallBase?: number }
+        if (data.hallBase === undefined) data.hallBase = mat.emissiveIntensity
+        mat.emissive.set('#000000')
+        mat.emissiveIntensity = data.hallBase
+      }
+    })
+  }
+
+  private stepDoorStare(dt: number): void {
+    if (this.passT <= 0) return
+    this.passClock += dt
+    this.peek.visible = false
+    if (
+      this.hallLive &&
+      this.hallMissionDone() &&
+      (this.passPhase === 'pass' || this.passPhase === 'corner' || this.passPhase === 'watch' || this.passPhase === 'shown')
+    ) {
+      this.beginHallVeer()
+    }
+    if (this.passPhase === 'shown') {
+      this.hallWalk = 0
+      this.monster.bb.state = 'Patrol'
+      this.monster.group.scale.setScalar(1)
+      this.faceHallMonster()
+      return
+    }
+    if (this.passPhase === 'pass' || this.passPhase === 'corner') {
+      const target = this.hallStops[this.hallStop]
+      const last = this.hallStop >= this.hallStops.length - 1
+      const speed = this.hallLive ? (last ? 5.6 : 7.2) : last ? 2.3 : 2.8
+      this.hallWalk = this.hallLive ? 3.6 : last ? 1.5 : 1.8
+      this.monster.bb.state = 'Patrol'
+      this.stepFigureFeet(dt, speed, 0.9)
+      if (!target || this.moveHallMonster(target, speed, dt)) {
+        this.hallStop += 1
+        this.passStep = 0
+        if (this.hallStop >= this.hallStops.length) {
+          this.passPhase = 'watch'
+          this.passClock = 0
+          this.hallWalk = 0
+          this.faceHallMonster()
+        }
+      }
+    } else if (this.passPhase === 'watch') {
+      this.hallWalk = 0
+      this.monster.bb.state = 'Patrol'
+      this.faceHallMonster()
+    } else if (this.passPhase === 'veer') {
+      const target = this.hallStops[this.hallStop]
+      const speed = 8.6
+      this.hallWalk = 4.2
+      this.monster.bb.state = 'Chase'
+      this.stepFigureFeet(dt, speed, 1.25)
+      if (!target || this.moveHallMonster(target, speed, dt)) {
+        this.hallStop += 1
+        if (this.hallStop >= this.hallStops.length) this.beginHallCharge()
+      }
+    } else if (this.passPhase === 'run') {
+      const speed = 15.2
+      this.hallWalk = 4.2
+      this.monster.bb.state = 'Chase'
+      const dx = this.sim.x - this.monster.pos.x
+      const dz = this.sim.z - this.monster.pos.z
+      const dist = Math.hypot(dx, dz) || 0.001
+      const stop = 0.82
+      if (!this.runScreamed) {
+        this.runScreamed = true
+        const at = { x: this.monster.pos.x, y: 1.5, z: this.monster.pos.z }
+        this.audio.play('scream', at, { volume: 2 })
+        this.audio.play('deep', { x: at.x, y: at.y - 0.3, z: at.z }, { volume: 1.15 })
+        if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.7)
+      }
+      if (dist < 4) this.aimAtHallMonster()
+      if (dist <= stop + 0.05) {
+        this.passPhase = 'face'
+        this.passClock = 0
+        this.hallWalk = 0
+        this.monster.group.scale.setScalar(1.2)
+        this.placeHallMonster(this.monster.pos.x, this.monster.pos.z, Math.atan2(dx, dz))
+      } else {
+        const step = Math.min(dist - stop, speed * dt)
+        const nx = this.monster.pos.x + (dx / dist) * step
+        const nz = this.monster.pos.z + (dz / dist) * step
+        const traveled = Math.hypot(nx - this.runFrom.x, nz - this.runFrom.z)
+        const total = Math.max(0.4, Math.hypot(this.sim.x - this.runFrom.x, this.sim.z - this.runFrom.z) - stop)
+        this.monster.group.scale.setScalar(1 + Math.min(1, traveled / total) * 0.2)
+        this.placeHallMonster(nx, nz, Math.atan2(dx, dz))
+        this.stepFigureFeet(dt, speed, 1.7)
+        this.audio.followChase({ x: nx, y: 0.3, z: nz })
+      }
+    } else {
+      this.hallWalk = 0
+      const dx = this.sim.x - this.monster.pos.x
+      const dz = this.sim.z - this.monster.pos.z
+      this.aimAtHallMonster()
+      this.monster.group.scale.setScalar(1.2)
+      this.placeHallMonster(this.monster.pos.x, this.monster.pos.z, Math.atan2(dx, dz))
+      if (this.passClock >= 0.85) {
+        this.passT = 0
+        this.passKind = 'cross'
+        if (this.snap.events) this.snap.events.hallDoor = true
+        this.parkHallMonster()
+      }
+    }
+  }
+
+  /** One footfall per stride, so the steps stay in time with the run. */
+  private stepFigureFeet(dt: number, speed: number, volume: number): void {
+    const stride = speed > 10 ? 1.2 : speed > 4 ? 1.05 : 0.62
+    this.passStep -= dt
+    if (this.passStep > 0) return
+    this.passStep = stride / speed
+    const at = this.hallLive
+      ? { x: this.monster.pos.x, y: 0, z: this.monster.pos.z }
+      : { x: this.peek.position.x, y: this.peek.position.y, z: this.peek.position.z }
+    this.audio.playFootstep(speed > 4, false, at, volume, speed > 10 ? 1.18 : speed > 4 ? 1.28 : 0.94)
+  }
+
+  private stepPasser(dt: number): void {
+    const here = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    if (here?.id === 'patientgang' && this.passKind !== 'stare') {
+      this.peek.visible = false
+      this.passT = 0
+      return
+    }
+    if (this.passKind === 'stare') {
+      this.stepDoorStare(dt)
+      return
+    }
+    if (this.passT <= 0) return
+    const total = this.peek.scale.y < 0.95 ? 0.72 : this.passFrom.y > 2 ? 1.35 : 1.15
+    const u = 1 - this.passT / total
+    this.peek.position.lerpVectors(this.passFrom, this.passTo, Math.max(0, Math.min(1, u)))
+    const walk = Math.atan2(this.passTo.x - this.passFrom.x, this.passTo.z - this.passFrom.z)
+    this.peek.rotation.set(0, walk, 0)
+    const glance = this.peek.getObjectByName('glance')
+    if (glance) {
+      const mid = Math.sin(Math.max(0, Math.min(1, u)) * Math.PI)
+      const toPlayer = Math.atan2(this.sim.x - this.peek.position.x, this.sim.z - this.peek.position.z)
+      let diff = toPlayer - walk
+      while (diff > Math.PI) diff -= Math.PI * 2
+      while (diff < -Math.PI) diff += Math.PI * 2
+      glance.rotation.y = Math.max(-1.05, Math.min(1.05, diff)) * mid
+    }
+    this.passT = Math.max(0, this.passT - dt)
+    this.peek.visible = this.passT > 0
+  }
+
+  /** A warm lamp on the operating-room locker, so the hiding place reads from the door. */
+  private mountClosetLamp(): void {
+    const lamp = new THREE.PointLight('#ffd7a4', 7.5, 6.5, 2)
+    lamp.position.set(29, 2.35, 9.85)
+    this.scene.add(lamp)
+    const shade = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 10, 8),
+      new THREE.MeshBasicMaterial({ color: '#ffe3b8' }),
+    )
+    shade.position.copy(lamp.position)
+    this.scene.add(shade)
+  }
+
+  /** The sum hangs on the north wall. 8 × 150 + 43 = 1243. */
+  private mountHallPuzzle(): void {
+    const paper = document.createElement('canvas')
+    paper.width = 900
+    paper.height = 1100
+    const g = paper.getContext('2d')
+    if (g) {
+      g.fillStyle = '#efe4d2'
+      g.fillRect(0, 0, 900, 1100)
+      g.strokeStyle = '#6d5c48'
+      g.lineWidth = 16
+      g.strokeRect(26, 26, 848, 1048)
+      g.fillStyle = '#2a2118'
+      g.textAlign = 'center'
+      g.font = '600 52px Georgia'
+      g.fillText('SKT. AGNES', 450, 150)
+      g.font = 'italic 38px Georgia'
+      g.fillText('Stue 2  ·  aftenmedicin', 450, 220)
+      g.font = '700 96px Georgia'
+      g.fillText('8  ×  150', 450, 460)
+      g.fillText('+  43', 450, 590)
+      g.strokeStyle = '#2a2118'
+      g.lineWidth = 5
+      g.beginPath()
+      g.moveTo(240, 650)
+      g.lineTo(660, 650)
+      g.stroke()
+      g.font = 'italic 42px Georgia'
+      g.fillText('Summen er koden', 450, 790)
+      g.fillText('ved døren.', 450, 860)
+    }
+    const map = new THREE.CanvasTexture(paper)
+    map.colorSpace = THREE.SRGBColorSpace
+    const board = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.15, 1.4),
+      new THREE.MeshStandardMaterial({ map, roughness: 0.86, emissive: '#4a3b2c', emissiveIntensity: 0.28 }),
+    )
+    board.position.set(20.6, 2.2, 11.68)
+    board.rotation.y = Math.PI
+    this.scene.add(board)
+
+    const box = new THREE.Group()
+    box.position.set(23.72, 1.22, 4.15)
+    const metal = new THREE.MeshStandardMaterial({ color: '#2c2926', roughness: 0.42, metalness: 0.4 })
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.36, 0.28), metal)
+    const screen = new THREE.Mesh(
+      new THREE.BoxGeometry(0.02, 0.07, 0.16),
+      new THREE.MeshStandardMaterial({ color: '#12160e', emissive: '#7d8a4e', emissiveIntensity: 0.4, roughness: 0.4 }),
+    )
+    screen.position.set(-0.055, 0.09, 0)
+    box.add(housing, screen)
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 3; col++) {
+        const nub = new THREE.Mesh(
+          new THREE.BoxGeometry(0.016, 0.02, 0.026),
+          new THREE.MeshStandardMaterial({ color: '#d5c7b0', roughness: 0.38 }),
+        )
+        nub.position.set(-0.058, -0.1 + row * 0.04, -0.055 + col * 0.055)
+        box.add(nub)
+      }
+    }
+    this.scene.add(box)
+  }
+
+  /** Four framed letters on open wall, clear of the cabinets. Order is H, O, M, O. */
+  private mountWallWord(): void {
+    const plates: { id: string; letter: string; x: number; y: number; z: number; rot: number }[] = [
+      { id: 'H', letter: 'H', x: 26.15, y: 1.72, z: 11.67, rot: Math.PI },
+      { id: 'O', letter: 'O', x: 35.62, y: 1.72, z: 8.4, rot: -Math.PI / 2 },
+      { id: 'M', letter: 'M', x: 28.15, y: 1.72, z: 0.33, rot: 0 },
+      { id: 'O2', letter: 'O', x: 24.42, y: 1.72, z: 3.6, rot: Math.PI / 2 },
+    ]
+    for (const plate of plates) {
+      const canvas = document.createElement('canvas')
+      canvas.width = 512
+      canvas.height = 680
+      const g = canvas.getContext('2d')
+      if (!g) continue
+      g.fillStyle = '#1a1612'
+      g.fillRect(0, 0, 512, 680)
+      g.fillStyle = '#efe6d8'
+      g.fillRect(28, 28, 456, 624)
+      g.strokeStyle = '#6a5344'
+      g.lineWidth = 10
+      g.strokeRect(40, 40, 432, 600)
+      g.fillStyle = 'rgba(110, 28, 22, 0.22)'
+      g.beginPath()
+      g.ellipse(390, 560, 90, 36, 0.4, 0, Math.PI * 2)
+      g.fill()
+      g.fillStyle = '#140f0d'
+      g.font = '600 430px Georgia'
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText(plate.letter, 256, 340)
+      const map = new THREE.CanvasTexture(canvas)
+      map.colorSpace = THREE.SRGBColorSpace
+      const faceMat = new THREE.MeshStandardMaterial({
+        map,
+        roughness: 0.72,
+        emissive: '#6a5844',
+        emissiveIntensity: 0.55,
+      })
+      const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(0.98, 1.24, 0.05),
+        new THREE.MeshStandardMaterial({ color: '#2c241c', roughness: 0.62 }),
+      )
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 1.1), faceMat)
+      face.position.z = 0.03
+      const group = new THREE.Group()
+      group.add(frame, face)
+      group.position.set(plate.x, plate.y, plate.z)
+      group.rotation.y = plate.rot
+      this.scene.add(group)
+      this.homoLetters.push({
+        id: plate.id,
+        letter: plate.letter,
+        x: plate.x,
+        y: plate.y,
+        z: plate.z,
+        state: 'idle',
+        face: faceMat,
+      })
+    }
+  }
+
+  private paintHomo(plate: (typeof this.homoLetters)[number]): void {
+    if (plate.state === 'green') {
+      plate.face.color.set('#e7ffe9')
+      plate.face.emissive.set('#1c8f46')
+      plate.face.emissiveIntensity = 1.15
+    } else if (plate.state === 'red') {
+      plate.face.color.set('#ffe4e4')
+      plate.face.emissive.set('#b41c1c')
+      plate.face.emissiveIntensity = 1.15
+    } else {
+      plate.face.color.set('#ffffff')
+      plate.face.emissive.set('#6a5844')
+      plate.face.emissiveIntensity = 0.55
+    }
+  }
+
+  /** A second press puts the plate back to paper, and drops any letters accepted after it. */
+  private extinguishHomo(plate: (typeof this.homoLetters)[number]): void {
+    if (plate.state === 'green') {
+      const at = this.homoOrder.indexOf(plate.id)
+      const drop = at >= 0 ? this.homoOrder.slice(at) : [plate.id]
+      for (const id of drop) {
+        const item = this.homoLetters.find((entry) => entry.id === id)
+        if (!item) continue
+        item.state = 'idle'
+        this.paintHomo(item)
+      }
+      this.homoOrder = at >= 0 ? this.homoOrder.slice(0, at) : this.homoOrder.filter((id) => id !== plate.id)
+      this.homoStep = this.homoOrder.length
+      const beats = this.snap.events?.beats
+      const mark = beats?.indexOf('op_homo') ?? -1
+      if (beats && mark >= 0) beats.splice(mark, 1)
+      this.refreshObjective()
+    } else {
+      plate.state = 'idle'
+      this.paintHomo(plate)
+    }
+    this.audio.play('click')
+  }
+
+  /** Green only for the next letter. A second press turns the colour off. */
+  private pressHomoLetter(id: string): void {
+    if (!(this.snap.events?.beats ?? []).includes('op_mission')) {
+      this.say('Gem dig først.')
+      return
+    }
+    const plate = this.homoLetters.find((item) => item.id === id)
+    if (!plate) return
+    if (plate.state !== 'idle') {
+      this.extinguishHomo(plate)
+      return
+    }
+    if (plate.letter === this.homoWord[this.homoStep]) {
+      plate.state = 'green'
+      this.paintHomo(plate)
+      this.homoOrder.push(plate.id)
+      this.homoStep = this.homoOrder.length
+      this.audio.play('click')
+      if (this.homoStep < this.homoWord.length) return
+      const beats = this.snap.events?.beats
+      if (beats && !beats.includes('op_homo')) beats.push('op_homo')
+      this.refreshObjective()
+      this.say('Døren giver sig.')
+      return
+    }
+    plate.state = 'red'
+    this.paintHomo(plate)
+    this.audio.play('locked', { x: plate.x, y: plate.y, z: plate.z }, { volume: 0.55 })
+  }
+
+  /** A covered figure on a bed, and the box the number opens. */
+  private mountMorgue(): void {
+    const bed = new THREE.Group()
+    bed.position.set(40.2, 0, 7.55)
+    const iron = new THREE.MeshStandardMaterial({ color: '#4a433c', roughness: 0.46, metalness: 0.55 })
+    const linen = new THREE.MeshStandardMaterial({ color: '#cfc6b6', roughness: 1 })
+    const mattressMat = new THREE.MeshStandardMaterial({ color: '#8a7968', roughness: 0.94 })
+    const shirt = new THREE.MeshStandardMaterial({ color: '#3c4650', roughness: 0.9 })
+    const trousers = new THREE.MeshStandardMaterial({ color: '#2a2826', roughness: 0.92 })
+    const skin = new THREE.MeshStandardMaterial({ color: '#6b5648', roughness: 0.86 })
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(2.16, 0.06, 0.96), iron)
+    deck.position.y = 0.46
+    const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.12, 0.84), mattressMat)
+    mattress.position.y = 0.55
+    const headboard = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.62, 0.9), iron)
+    headboard.position.set(-1.05, 0.78, 0)
+    const footboard = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.36, 0.86), iron)
+    footboard.position.set(1.04, 0.64, 0)
+    bed.add(deck, mattress, headboard, footboard)
+    for (const x of [-0.92, 0.92]) {
+      for (const z of [-0.4, 0.4]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.46, 0.06), iron)
+        leg.position.set(x, 0.23, z)
+        bed.add(leg)
+      }
+    }
+    for (const z of [-0.46, 0.46]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 0.03), iron)
+      rail.position.set(0.02, 0.72, z)
+      bed.add(rail)
+    }
+    const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.08, 0.52), linen)
+    pillow.position.set(-0.78, 0.66, 0)
+    bed.add(pillow)
+    const legs = new THREE.Group()
+    for (const z of [-0.09, 0.09]) {
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.62, 4, 8), trousers)
+      leg.rotation.z = Math.PI / 2
+      leg.position.set(0.48, 0.72, z)
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.06, 0.09), trousers)
+      foot.position.set(0.86, 0.68, z)
+      legs.add(leg, foot)
+    }
+    bed.add(legs)
+    const upper = new THREE.Group()
+    upper.position.set(0.02, 0.74, 0)
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.38, 4, 8), shirt)
+    torso.rotation.z = Math.PI / 2
+    torso.position.set(-0.24, 0.04, 0)
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.08, 8), skin)
+    neck.rotation.z = Math.PI / 2
+    neck.position.set(-0.48, 0.06, 0)
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), skin)
+    head.scale.set(1.05, 0.92, 0.95)
+    head.position.set(-0.64, 0.08, 0)
+    upper.add(torso, neck, head)
+    for (const z of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.04, 0.42, 3, 6), shirt)
+      arm.rotation.z = Math.PI / 2
+      arm.position.set(-0.22, 0.0, z * 0.2)
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), skin)
+      hand.position.set(-0.02, -0.01, z * 0.2)
+      upper.add(arm, hand)
+    }
+    const paper = document.createElement('canvas')
+    paper.width = 512
+    paper.height = 200
+    const g = paper.getContext('2d')
+    if (g) {
+      g.fillStyle = '#e4d8c6'
+      g.fillRect(0, 0, 512, 200)
+      g.fillStyle = '#1a120e'
+      g.font = '700 132px Georgia'
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText(BODY_CODE, 256, 104)
+    }
+    const map = new THREE.CanvasTexture(paper)
+    map.colorSpace = THREE.SRGBColorSpace
+    const mark = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.42, 0.16),
+      new THREE.MeshStandardMaterial({ map, roughness: 0.72, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4 }),
+    )
+    mark.position.set(-0.1, 0.22, 0.02)
+    mark.rotation.x = -1.05
+    mark.visible = false
+    upper.add(mark)
+    bed.add(upper)
+    this.corpseUpper = upper
+    this.sheetMark = mark
+    const sheet = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.035, 0.8), linen)
+    sheet.position.set(0.06, 0.9, 0)
+    bed.add(sheet)
+    this.sheetCloth = sheet
+    this.scene.add(bed)
+
+    const box = new THREE.Group()
+    box.position.set(40.6, 0.72, 2.7)
+    const housing = new THREE.Mesh(
+      new THREE.BoxGeometry(0.46, 0.28, 0.34),
+      new THREE.MeshStandardMaterial({ color: '#2a2724', roughness: 0.48, metalness: 0.4 }),
+    )
+    housing.position.y = 0.14
+    const lid = new THREE.Mesh(
+      new THREE.BoxGeometry(0.44, 0.04, 0.32),
+      new THREE.MeshStandardMaterial({ color: '#3a3530', roughness: 0.42, metalness: 0.45 }),
+    )
+    lid.position.set(0, 0.3, 0)
+    lid.geometry.translate(0, 0.02, -0.16)
+    const key = new THREE.Group()
+    const brass = new THREE.MeshStandardMaterial({ color: '#b08a45', roughness: 0.4, metalness: 0.6 })
+    const bow = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.008, 6, 12), brass)
+    bow.rotation.x = Math.PI / 2
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.012, 0.012), brass)
+    shaft.position.x = 0.06
+    key.add(bow, shaft)
+    key.position.set(0, 0.2, 0)
+    key.rotation.y = 0.4
+    key.visible = false
+    box.add(housing, lid, key)
+    this.bodyLid = lid
+    this.bodyKeyMesh = key
+    this.scene.add(box)
+  }
+
+  private pullSheet(): void {
+    if (this.sheetU >= 0) return
+    if ((this.snap.events?.beats ?? []).includes('slag_sheet')) return
+    this.sheetU = 0
+    this.audio.play('paper', { x: 40.2, y: 1, z: 7.55 }, { volume: 0.45 })
+  }
+
+  private takeBodyKey(): void {
+    if (this.bodyKeyTaken) return
+    if (!(this.snap.events?.beats ?? []).includes('slag_code')) return
+    const res = addItem(this.snap.inventory, 'key_slag', 1)
+    if (!res.added) {
+      this.say('Du kan ikke bære flere.')
+      return
+    }
+    this.snap.inventory = res.slots
+    this.bodyKeyTaken = true
+    if (this.bodyKeyMesh) this.bodyKeyMesh.visible = false
+    const beats = this.snap.events?.beats
+    if (beats && !beats.includes('slag_key')) beats.push('slag_key')
+    this.audio.play('key')
+    this.say('Nøglen passer i døren.')
+    this.refreshObjective()
+  }
+
+  private stepSheet(dt: number): void {
+    if (this.bodyLid && this.bodyLidU >= 0 && this.bodyLidU < 1) {
+      this.bodyLidU = Math.min(1, this.bodyLidU + dt / 0.7)
+      const u = 1 - Math.pow(1 - this.bodyLidU, 3)
+      this.bodyLid.rotation.x = -u * 1.35
+    }
+    const beats = this.snap.events?.beats
+    const sheet = this.sheetCloth
+    if (sheet && this.sheetU < 0 && beats?.includes('slag_sheet')) {
+      this.placeSheet(1)
+    }
+    if (sheet && this.sheetU >= 0 && this.sheetU < 1) {
+      this.sheetU = Math.min(1, this.sheetU + dt / 1.7)
+      this.placeSheet(this.sheetU)
+      if (this.sheetU >= 1) {
+        if (beats && !beats.includes('slag_sheet')) beats.push('slag_sheet')
+        this.refreshObjective()
+        this.say('Tallet står på maven.')
+      }
+    }
+    if (this.hangFallIn > 0) this.hangFallIn = Math.max(0, this.hangFallIn - dt)
+    this.stepCorpse(dt)
+  }
+
+  /** Pulls the linen toward the feet so it folds there instead of sliding off as a board. */
+  private placeSheet(t: number): void {
+    const sheet = this.sheetCloth
+    if (!sheet) return
+    const u = t * t * (3 - 2 * t)
+    const scale = 1 - u * 0.78
+    sheet.scale.x = scale
+    sheet.position.x = 0.92 - 0.86 * scale
+    sheet.position.y = 0.9 + u * 0.05
+    if (this.sheetMark) this.sheetMark.visible = u > 0.5
+  }
+
+  /** After the sheet is off, looking at the number makes him sit up once, then lie still. */
+  private stepCorpse(dt: number): void {
+    if (this.corpseSit === 'done') return
+    const upper = this.corpseUpper
+    if (!upper) return
+    const beats = this.snap.events?.beats ?? []
+    if (!beats.includes('slag_sheet')) return
+    if (this.corpseSit === 'off') {
+      const here = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+      const mark = this.sheetMark
+      if (!mark) return
+      mark.updateWorldMatrix(true, false)
+      const spot = mark.getWorldPosition(new THREE.Vector3())
+      const dx = spot.x - this.camera.position.x
+      const dy = spot.y - this.camera.position.y
+      const dz = spot.z - this.camera.position.z
+      const dist = Math.hypot(dx, dy, dz) || 1
+      const dot = (this.camDir.x * dx + this.camDir.y * dy + this.camDir.z * dz) / dist
+      if (here?.id === 'slagterum' && dot > 0.9 && dist < 2.1) this.corpseLook += dt
+      else this.corpseLook = 0
+      if (this.corpseLook < 1) return
+      if (this.hangPhase === 'off') {
+        this.beginHang()
+        this.hangFallIn = 2
+      }
+      this.corpseSit = 'up'
+      this.corpseSitT = 0
+      this.audio.playClip('hangDrop', { x: 40.2, y: 1.15, z: 7.55 }, 1)
+    }
+    this.corpseSitT += dt
+    const rise = 0.22
+    const hold = 0.4
+    const fall = 0.5
+    const lean = -1.15
+    if (this.corpseSit === 'up') {
+      const u = Math.min(1, this.corpseSitT / rise)
+      upper.rotation.z = lean * u * u
+      if (u >= 1) {
+        this.corpseSit = 'hold'
+        this.corpseSitT = 0
+      }
+      return
+    }
+    if (this.corpseSit === 'hold') {
+      upper.rotation.z = lean
+      if (this.corpseSitT >= hold) {
+        this.corpseSit = 'down'
+        this.corpseSitT = 0
+      }
+      return
+    }
+    const u = Math.min(1, this.corpseSitT / fall)
+    upper.rotation.z = lean * (1 - u * u)
+    if (u >= 1) {
+      upper.rotation.z = 0
+      this.corpseSit = 'done'
+    }
+  }
+
+  /** The hanged man waits at the top of the ground-floor stairs. */
+  private mountStairFigure(): void {
+    const made = buildHanged()
+    const fig = made.body
+    fig.name = 'stair-man'
+    fig.visible = true
+    fig.position.set(52.02, FLOOR_Y[1] + 1.28, 5.72)
+    fig.rotation.set(0, Math.PI, 0)
+    fig.traverse((obj) => {
+      obj.castShadow = false
+      const mesh = obj as THREE.Mesh
+      if (mesh.geometry instanceof THREE.TorusGeometry) mesh.visible = false
+    })
+    const head = fig.getObjectByName('hang-head')
+    if (head) head.rotation.z = 0.08
+    made.rope.visible = false
+    this.scene.add(fig)
+    this.stairFig = fig
+  }
+
+  private stepStairGrin(dt: number): void {
+    const fig = this.stairFig
+    if (!fig || this.stairPhase === 'gone') return
+    if (this.stairPhase === 'run') {
+      const target = this.stairPath[this.stairPathI]
+      if (!target) {
+        fig.visible = false
+        this.stairPhase = 'gone'
+        this.desired.set('door_pers_trappe', 0)
+        return
+      }
+      const dx = target.x - fig.position.x
+      const dy = target.y - fig.position.y
+      const dz = target.z - fig.position.z
+      const dist = Math.hypot(dx, dz) || 0.001
+      const step = Math.min(dist, 7.2 * dt)
+      fig.position.x += (dx / dist) * step
+      fig.position.z += (dz / dist) * step
+      fig.position.y += dy * Math.min(1, step / dist)
+      fig.rotation.y = Math.atan2(dx, dz)
+      if (fig.position.x < 48.4) this.desired.set('door_pers_trappe', 1)
+      if (dist < 0.2) this.stairPathI += 1
+      return
+    }
+    if (this.stairPhase === 'cue') {
+      const mouth = { x: fig.position.x, y: fig.position.y + 0.15, z: fig.position.z }
+      this.audio.tickBodyCry(mouth)
+      this.stairLook += dt
+      if (this.stairLook < 2) return
+      this.audio.stopLeftCry()
+      this.beginStairRun()
+      return
+    }
+    if (!this.atStairOverview()) return
+    const mouth = { x: fig.position.x, y: fig.position.y + 0.2, z: fig.position.z }
+    this.audio.playClip('stairLaugh', mouth, 1)
+    this.audio.startBodyCry(mouth)
+    this.stairLook = 0
+    this.stairPhase = 'cue'
+  }
+
+  /** The foot of the lower flight, where the whole stair fills the view. */
+  private atStairOverview(): boolean {
+    const here = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    if (here?.id !== 'trappe0' || this.sim.y > 1.35) return false
+    if (this.sim.x < 50.5 || this.sim.x > 53.55 || this.sim.z < 0.2 || this.sim.z > 2.35) return false
+    const fig = this.stairFig
+    if (!fig) return false
+    const dx = fig.position.x - this.camera.position.x
+    const dy = fig.position.y - this.camera.position.y
+    const dz = fig.position.z - this.camera.position.z
+    const dist = Math.hypot(dx, dy, dz) || 1
+    const dot = (this.camDir.x * dx + this.camDir.y * dy + this.camDir.z * dz) / dist
+    return dot > 0.42
+  }
+
+  private beginStairRun(): void {
+    const neck = FLOOR_Y[1] + 1.28
+    this.stairPath = [
+      new THREE.Vector3(52.02, neck, 6.35),
+      new THREE.Vector3(49.15, neck, 6.05),
+      new THREE.Vector3(46.4, neck, 6.3),
+      new THREE.Vector3(42.6, neck, 8.8),
+    ]
+    this.stairPathI = 0
+    this.stairPhase = 'run'
+  }
+
+  private slamEntered(from: string, to: string): void {
+    const door = this.world.doors.find((item) =>
+      item.kind === 'door' && ((item.a === from && item.b === to) || (item.a === to && item.b === from)),
+    )
+    if (!door) return
+    if (this.pendingSlam?.id === door.id && this.pendingSlam.at >= 0) return
+    this.pendingSlam = { id: door.id, room: to, at: -1 }
+  }
+
+  /** The two seconds start only once the player is clear of the doorway. */
+  private stepPendingSlam(): void {
+    const pending = this.pendingSlam
+    if (!pending) return
+    const here = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    if (!here || here.id !== pending.room) {
+      this.pendingSlam = null
+      return
+    }
+    const door = this.world.doors.find((item) => item.id === pending.id)
+    if (!door) {
+      this.pendingSlam = null
+      return
+    }
+    const px = door.axis === 'x' ? door.coord : door.center
+    const pz = door.axis === 'x' ? door.center : door.coord
+    const dist = Math.hypot(this.sim.x - px, this.sim.z - pz)
+    if (dist < 1.15) {
+      pending.at = -1
+      return
+    }
+    if (pending.at < 0) pending.at = this.snap.playTime + 2
+    if (this.snap.playTime < pending.at) return
+    this.pendingSlam = null
+    if (dist > 0.9) this.slamDoor(door.id)
+  }
+
+  /** A flat square on the reception floor, and the monitor on the west wall. */
+  private mountWatch(): void {
+    const floorMat = new THREE.MeshBasicMaterial({
+      color: '#ffffff',
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+    })
+    const mark = new THREE.Group()
+    // The floor slab tops out at y 0.10, so the mark has to sit above it.
+    mark.position.set(this.watchStand.x, 0.12, this.watchStand.z)
+    const rim = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.85, 1.85),
+      new THREE.MeshBasicMaterial({ color: '#1c140e' }),
+    )
+    rim.rotation.x = -Math.PI / 2
+    rim.position.y = -0.012
+    const square = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), floorMat)
+    square.rotation.x = -Math.PI / 2
+    square.renderOrder = 2
+    mark.add(rim, square)
+    mark.visible = false
+    this.scene.add(mark)
+    this.watchMark = mark
+
+    const video = document.createElement('video')
+    video.src = import.meta.env.BASE_URL + 'video/frederik-the-g.mp4'
+    video.preload = 'auto'
+    video.playsInline = true
+    video.setAttribute('playsinline', '')
+    video.volume = 1
+    video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none'
+    document.body.appendChild(video)
+    video.addEventListener('loadedmetadata', () => this.fitTape())
+    video.addEventListener('ended', () => this.finishTape())
+    this.tapeVideo = video
+
+    const tex = new THREE.VideoTexture(video)
+    tex.colorSpace = THREE.SRGBColorSpace
+    const screen = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }),
+    )
+    screen.position.z = 0.03
+    screen.visible = false
+    const bezel = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 0.04),
+      new THREE.MeshStandardMaterial({ color: '#14110f', roughness: 0.5, metalness: 0.4 }),
+    )
+    const group = new THREE.Group()
+    group.position.set(0.16, 1.78, this.watchStand.z)
+    group.rotation.y = Math.PI / 2
+    const caption = this.tapeLabel()
+    group.add(bezel, screen, caption)
+    group.visible = false
+    this.scene.add(group)
+    this.tapeGroup = group
+    this.tapeScreen = screen
+    this.tapeBezel = bezel
+    this.tapeCaption = caption
+    this.fitTape()
+  }
+
+  private tapeLabel(): THREE.Mesh {
+    const canvas = document.createElement('canvas')
+    canvas.width = 1024
+    canvas.height = 160
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.fillStyle = '#16110e'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.fillStyle = '#f4e7d2'
+      ctx.font = '600 68px Georgia, serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('Frederik på fri fod', canvas.width / 2, canvas.height / 2 + 4)
+    }
+    const map = new THREE.CanvasTexture(canvas)
+    map.colorSpace = THREE.SRGBColorSpace
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.2, 0.34),
+      new THREE.MeshBasicMaterial({ map, toneMapped: false }),
+    )
+    mesh.visible = false
+    mesh.name = 'tape-caption'
+    return mesh
+  }
+
+  private fitTape(): void {
+    const screen = this.tapeScreen
+    const bezel = this.tapeBezel
+    const video = this.tapeVideo
+    if (!screen || !bezel) return
+    const aspect = video && video.videoWidth > 0 ? video.videoWidth / video.videoHeight : 16 / 9
+    let height = 2.25
+    let width = height * aspect
+    if (width > 3.7) {
+      width = 3.7
+      height = width / aspect
+    }
+    if (height > 2.45) {
+      height = 2.45
+      width = height * aspect
+    }
+    screen.scale.set(width, height, 1)
+    bezel.scale.set(width + 0.14, height + 0.14, 1)
+    if (this.tapeCaption) this.tapeCaption.position.set(0, -(height / 2) - 0.24, 0.05)
+  }
+
+  private resetWatch(): void {
+    this.watchPhase = 'off'
+    this.watchDone = false
+    this.watchLeft = 3
+    if (this.watchMark) this.watchMark.visible = false
+    if (this.tapeScreen) this.tapeScreen.visible = false
+    if (this.tapeCaption) this.tapeCaption.visible = false
+    if (this.tapeGroup) this.tapeGroup.visible = false
+    if (this.tapeVideo) {
+      this.tapeVideo.pause()
+      try { this.tapeVideo.currentTime = 0 } catch { /* not loaded yet */ }
+    }
+    this.ui.watchAsk(false)
+    this.ui.watchGuide('', null, null)
+    this.ui.cinematic(this.introTime >= 0)
+  }
+
+  private openWatchAsk(): void {
+    if (this.watchDone || this.watchPhase === 'ask') return
+    this.stopDoorWeep()
+    this.watchPhase = 'ask'
+    this.input.unlock()
+    this.ui.cinematic(true)
+    this.ui.watchAsk(true)
+    this.ui.watchGuide('', null, null)
+    this.audio.play('paper', undefined, { volume: 0.32 })
+  }
+
+  private declineWatch(): void {
+    if (this.watchPhase !== 'ask') return
+    this.watchPhase = 'off'
+    this.ui.watchAsk(false)
+    this.ui.cinematic(false)
+    if (this.mode === 'playing' && this.introTime < 0 && !this.testMode) this.input.lock()
+  }
+
+  private acceptWatch(): void {
+    if (this.watchPhase !== 'ask') return
+    this.watchPhase = 'seek'
+    this.watchLeft = 3
+    this.ui.watchAsk(false)
+    this.ui.cinematic(false)
+    if (this.watchMark) this.watchMark.visible = true
+    if (this.tapeGroup) this.tapeGroup.visible = true
+    if (this.tapeScreen) this.tapeScreen.visible = false
+    const video = this.tapeVideo
+    if (video) {
+      video.muted = false
+      video.volume = 0
+      void video.play().then(() => {
+        if (this.watchPhase === 'seek') {
+          try { video.currentTime = 0 } catch { /* metadata still loading */ }
+        }
+      }).catch(() => undefined)
+    }
+    if (this.mode === 'playing' && !this.testMode) this.input.lock()
+  }
+
+  private stepWatch(dt: number): void {
+    if (this.watchPhase !== 'seek') return
+    const video = this.tapeVideo
+    if (video && !video.paused && video.currentTime > 0.05) {
+      try { video.currentTime = 0 } catch { /* keeps the clip ready without playing out loud */ }
+    }
+    const inside = Math.abs(this.sim.x - this.watchStand.x) < 0.72 && Math.abs(this.sim.z - this.watchStand.z) < 0.72
+    if (inside) {
+      this.watchLeft = Math.max(0, this.watchLeft - dt)
+      const shown = Math.max(1, Math.ceil(this.watchLeft))
+      this.ui.watchGuide('', null, this.watchLeft <= 0 ? null : shown)
+      if (this.watchLeft <= 0) this.startTape()
+      return
+    }
+    this.watchLeft = 3
+    const fx = Math.sin(this.sim.yaw)
+    const fz = Math.cos(this.sim.yaw)
+    const rx = Math.cos(this.sim.yaw)
+    const rz = -Math.sin(this.sim.yaw)
+    const tx = this.watchStand.x - this.sim.x
+    const tz = this.watchStand.z - this.sim.z
+    const arrow = Math.atan2(tx * rx + tz * rz, tx * fx + tz * fz) * 180 / Math.PI
+    this.ui.watchGuide('Følg pilen, og stil dig i den hvide firkant.', arrow, null)
+  }
+
+  private startTape(): void {
+    if (this.watchPhase !== 'seek') return
+    this.watchPhase = 'play'
+    this.sim.yaw = this.watchYaw
+    this.sim.pitch = 0
+    this.ui.watchGuide('', null, null)
+    if (this.watchMark) this.watchMark.visible = false
+    if (this.tapeScreen) this.tapeScreen.visible = true
+    if (this.tapeCaption) this.tapeCaption.visible = true
+    const video = this.tapeVideo
+    if (!video) {
+      this.finishTape()
+      return
+    }
+    video.muted = false
+    video.volume = 1
+    try { video.currentTime = 0 } catch { /* starts when the file is ready */ }
+    this.audio.duck(true)
+    void video.play().catch(() => {
+      this.say('Båndet ville ikke starte.')
+      this.finishTape()
+    })
+  }
+
+  private finishTape(): void {
+    if (this.watchPhase !== 'play' || this.watchDone) return
+    this.watchPhase = 'fade'
+    this.watchLeft = 0.55
+    this.ui.watchGuide('', null, null)
+    const mat = this.tapeScreen?.material
+    if (mat instanceof THREE.MeshBasicMaterial) {
+      mat.transparent = true
+      mat.opacity = 1
+    }
+  }
+
+  /** After the picture fades: a creaking door, a short quiet, then the drop. The player stays still. */
+  private stepWatchAfter(dt: number): void {
+    if (this.watchPhase === 'fade') {
+      this.watchLeft = Math.max(0, this.watchLeft - dt)
+      const left = this.watchLeft / 0.55
+      const mat = this.tapeScreen?.material
+      if (mat instanceof THREE.MeshBasicMaterial) mat.opacity = left
+      if (this.tapeVideo) this.tapeVideo.volume = left
+      if (this.watchLeft > 0) return
+      if (this.tapeCaption) this.tapeCaption.visible = false
+      if (this.tapeGroup) this.tapeGroup.visible = false
+      if (this.tapeVideo) this.tapeVideo.pause()
+      this.watchPhase = 'creak'
+      this.watchLeft = 0.7
+      return
+    }
+    if (this.watchPhase === 'creak') {
+      this.watchLeft = Math.max(0, this.watchLeft - dt)
+      if (this.watchLeft > 0) return
+      const fx = Math.sin(this.sim.yaw)
+      const fz = Math.cos(this.sim.yaw)
+      const at = { x: this.sim.x - fx * 0.8, y: this.sim.y + 1.3, z: this.sim.z - fz * 0.8 }
+      if (!this.audio.playFading('creakDoor', at, 1.25, 3.4, 1.2, true)) {
+        this.creakTries += 1
+        if (this.creakTries < 10) return
+      }
+      this.creakTries = 0
+      this.audio.duck(false)
+      this.audio.hush(3)
+      this.watchPhase = 'quiet'
+      this.watchLeft = 3.4 + 1.2 + 0.45
+      return
+    }
+    if (this.watchPhase === 'quiet') {
+      this.watchLeft = Math.max(0, this.watchLeft - dt)
+      if (this.watchLeft > 0) return
+      this.beginDoorHang()
+      return
+    }
+    if (this.watchPhase === 'scare') this.stepDoorHang(dt)
+    else if (this.watchPhase === 'hold') {
+      this.watchLeft = Math.max(0, this.watchLeft - dt)
+      if (this.watchLeft === 0) this.releaseWatch()
+    }
+  }
+
+  /** One spot in front of the mouse, kept for the whole drop. */
+  private placeDoorHangInFront(): void {
+    const fx = Math.sin(this.sim.yaw)
+    const fz = Math.cos(this.sim.yaw)
+    this.doorHangX = Math.min(11.05, Math.max(0.95, this.sim.x + fx * 1.7))
+    this.doorHangZ = Math.min(11.05, Math.max(0.95, this.sim.z + fz * 1.7))
+  }
+
+  private beginDoorHang(): void {
+    this.placeDoorHangInFront()
+    this.doorHangBang = false
+    this.scareDim = 1
+    this.watchPhase = 'scare'
+    this.watchLeft = 0
+    if (this.doorHangBody) {
+      this.doorHangBody.visible = true
+      this.doorHangBody.position.set(this.doorHangX, 3.15, this.doorHangZ)
+      this.doorHangBody.rotation.y = Math.atan2(this.sim.x - this.doorHangX, this.sim.z - this.doorHangZ)
+      const head = this.doorHangBody.getObjectByName('hang-head')
+      if (head) head.rotation.z = 0.42
+    }
+    if (this.doorHangRope) this.doorHangRope.visible = true
+  }
+
+  /** The room 4 drop, in front of the player. The mouse can look. The body stays put. */
+  private stepDoorHang(dt: number): void {
+    if (!this.doorHangBody || !this.doorHangRope) return
+    this.watchLeft += dt
+    const body = this.doorHangBody
+    const rope = this.doorHangRope
+    const fall = 0.18
+    const start = 3.15
+    const end = 1.84
+    let neck = end
+    if (this.watchLeft < fall) {
+      const u = this.watchLeft / fall
+      neck = start + (end - start) * u * u * u
+    } else if (!this.doorHangBang) {
+      this.doorHangBang = true
+      this.audio.play('doorSlam', { x: this.doorHangX, y: 1.2, z: this.doorHangZ }, { volume: 1.6 })
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.55)
+    }
+    body.position.set(this.doorHangX, neck, this.doorHangZ)
+    const length = Math.max(0.25, 3.42 - neck)
+    rope.visible = true
+    rope.scale.set(1, length, 1)
+    rope.position.set(this.doorHangX, neck + length / 2, this.doorHangZ)
+    if (!this.doorHangBang) return
+    this.audio.playClip('hangDrop', { x: this.doorHangX, y: neck, z: this.doorHangZ }, 1)
+    this.releaseWatch()
+  }
+
+  private releaseWatch(): void {
+    this.watchDone = true
+    this.watchPhase = 'off'
+    this.watchLeft = 3
+    this.hangChase = 'wait'
+    this.hangChaseT = 0
+    this.hangChaseSound = false
+    this.audio.duck(this.mode !== 'playing' && this.mode !== 'menu')
+    this.say('Gå hen til døren.')
+    this.refreshObjective()
+  }
+
+  private markRecDoor(): void {
+    if (this.snap.readIds.includes('rec_door')) return
+    this.snap.readIds.push('rec_door')
+    const beats = this.snap.events?.beats
+    if (beats && !beats.includes('rec_door')) beats.push('rec_door')
+    this.refreshObjective()
+  }
+
+  /** After the drop stays put, the sprint starts just before the door will open. */
+  private stepHangChase(dt: number): void {
+    if (this.hangChase === 'off' || this.hangChase === 'done' || !this.hangRunner) return
+    const door = this.world.doors.find((item) => item.id === 'door_rec_pat')
+    if (!door) return
+    const at = this.doorPos(door)
+    if (this.hangChase === 'wait') {
+      const here = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+      if (here?.id !== 'reception') return
+      if (Math.hypot(this.sim.x - at.x, this.sim.z - at.z) > 2.7) return
+      this.beginHangChase(at.x, at.z)
+      return
+    }
+    this.advanceHangChase(dt)
+  }
+
+  private beginHangChase(doorX: number, doorZ: number): void {
+    this.hangChase = 'behind'
+    this.hangChaseT = 0
+    if (!this.hangRunner) return
+    this.hangRunner.visible = false
+    this.hangRunner.scale.setScalar(1)
+    this.hangRunner.position.set(this.doorHangX, 1.38, this.doorHangZ)
+    this.hangRunner.rotation.y = Math.atan2(this.sim.x - this.doorHangX, this.sim.z - this.doorHangZ)
+    this.hangPath = [
+      new THREE.Vector3(this.sim.x, 1.38, this.sim.z),
+      new THREE.Vector3(doorX + 0.35, 1.38, doorZ),
+      new THREE.Vector3(15.4, 1.38, doorZ),
+      new THREE.Vector3(18.6, 1.38, 8.4),
+    ]
+    this.hangPathI = 0
+    this.hangAim = false
+    const fromHim = { x: this.doorHangX, y: 0.3, z: this.doorHangZ }
+    this.hangChaseSound = this.audio.playChaseSteps(fromHim, false)
+    this.audio.hush(3.2)
+  }
+
+  private aimAtHangRunner(): void {
+    const runner = this.hangRunner
+    if (!runner) return
+    const dx = runner.position.x - this.sim.x
+    const dz = runner.position.z - this.sim.z
+    const dist = Math.hypot(dx, dz) || 0.001
+    this.sim.yaw = Math.atan2(dx, dz)
+    const eye = this.sim.y + 1.62
+    this.sim.pitch = Math.max(-0.35, Math.min(0.2, Math.atan2(1.48 - eye, dist)))
+  }
+
+  private advanceHangChase(dt: number): void {
+    const runner = this.hangRunner
+    if (!runner || this.hangChase === 'done') return
+    const dx = this.sim.x - runner.position.x
+    const dz = this.sim.z - runner.position.z
+    const dist = Math.hypot(dx, dz) || 0.001
+    if (this.hangChase === 'behind') {
+      this.hangChaseT += dt
+      const fromHim = { x: this.doorHangX, y: 0.3, z: this.doorHangZ }
+      if (!this.hangChaseSound) this.hangChaseSound = this.audio.playChaseSteps(fromHim, false)
+      this.audio.followChase(fromHim)
+      if (this.hangChaseT >= 1.5) {
+        this.hangChase = 'run'
+        this.hangChaseT = 0
+        this.hangRoared = false
+        if (this.doorHangBody) this.doorHangBody.visible = false
+        if (this.doorHangRope) this.doorHangRope.visible = false
+        runner.position.set(this.doorHangX, 1.38, this.doorHangZ)
+        if (this.hangPath[0]) this.hangPath[0].set(this.sim.x, 1.38, this.sim.z)
+        runner.visible = true
+        this.hangAim = true
+        this.aimAtHangRunner()
+      }
+      return
+    }
+    this.hangChaseT += dt
+    if (this.hangChase === 'run' && !this.hangRoared) {
+      this.hangRoared = true
+      const at = { x: runner.position.x, y: 1.5, z: runner.position.z }
+      if (!this.audio.playClip('hangScream', at, 1.8)) this.audio.play('scream', at, { volume: 1.7 })
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.7)
+    }
+    const target = this.hangPath[this.hangPathI]
+    if (!target) {
+      runner.visible = false
+      runner.scale.setScalar(1)
+      this.hangAim = false
+      this.hangChase = 'done'
+      this.desired.set('door_rec_pat', 0)
+      return
+    }
+    const tx = target.x - runner.position.x
+    const tz = target.z - runner.position.z
+    const td = Math.hypot(tx, tz) || 0.001
+    const speed = 13.5
+    const step = Math.min(td, speed * dt)
+    runner.position.x += (tx / td) * step
+    runner.position.z += (tz / td) * step
+    runner.position.y = 1.38 + Math.abs(Math.sin((this.hangChaseT * speed / 1.2) * Math.PI)) * 0.07
+    runner.scale.setScalar(this.hangPathI === 0 ? 1.12 : 1)
+    if (td < 0.22) {
+      this.hangPathI += 1
+      if (this.hangPathI === 1) this.desired.set('door_rec_pat', 1)
+      if (this.hangPathI === 2) this.slamDoor('door_rec_pat')
+    }
+    this.hangAim = this.hangPathI === 0 && dist < 3.4
+    runner.visible = true
+    runner.rotation.y = Math.atan2(tx, tz)
+    this.audio.followChase({ x: runner.position.x, y: 0.3, z: runner.position.z })
+  }
+
+  /** Five seconds after the butcher room, a figure drops on a short rope and stays there. */
+  private beginHang(): void {
+    const fx = Math.sin(this.sim.yaw)
+    const fz = Math.cos(this.sim.yaw)
+    this.hangX = Math.min(47.15, Math.max(36.85, this.sim.x + fx * 1.5))
+    this.hangZ = Math.min(11.15, Math.max(0.85, this.sim.z + fz * 1.5))
+    this.scareDim = 1
+    this.hangPhase = 'fall'
+    this.hangT = 0
+    this.hangSound = 1.6
+    this.hangCryIn = -1
+    this.hangCryOn = false
+    this.hangCryDone = false
+    this.hangBang = false
+    if (this.hangBody) {
+      this.hangBody.visible = true
+      this.hangBody.position.set(this.hangX, 3.15, this.hangZ)
+      this.hangBody.rotation.y = Math.atan2(this.sim.x - this.hangX, this.sim.z - this.hangZ)
+    }
+    if (this.hangRope) this.hangRope.visible = true
+  }
+
+  private stepHang(dt: number): void {
+    if (this.hangPhase === 'off' || !this.hangBody || !this.hangRope) return
+    this.hangT += Math.max(0, dt)
+    if (this.hangPhase === 'feet') {
+      this.stepHangFeet()
+      return
+    }
+    if (this.hangPhase === 'stare') {
+      this.stepHangStare(dt)
+      return
+    }
+    if (this.hangPhase === 'flee') {
+      this.stepHangFlee(dt)
+      return
+    }
+    const fall = 0.18
+    const start = 3.2
+    const end = 1.84
+    let neck = end
+    if (this.hangT < fall) {
+      const u = this.hangT / fall
+      neck = start + (end - start) * u * u * u
+    } else if (!this.hangBang) {
+      this.hangBang = true
+      this.hangPhase = 'hung'
+      const at = { x: this.hangX, y: 1.2, z: this.hangZ }
+      this.audio.play('doorSlam', at, { volume: 1.6 })
+      if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.55)
+    }
+    this.hangBody.position.set(this.hangX, neck, this.hangZ)
+    const length = Math.max(0.25, 3.42 - neck)
+    this.hangRope.visible = true
+    this.hangRope.scale.set(1, length, 1)
+    this.hangRope.position.set(this.hangX, neck + length / 2, this.hangZ)
+    if (this.hangSound > 0) {
+      this.hangSound = Math.max(0, this.hangSound - dt)
+      const dur = this.audio.playClip('hangDrop', { x: this.hangX, y: neck, z: this.hangZ }, 1)
+      if (dur > 0) {
+        this.hangSound = 0
+        this.hangCryIn = dur + 5
+      } else if (this.hangSound === 0) this.hangCryIn = 5
+    }
+    if (this.hangCryIn >= 0 && !this.hangCryDone) {
+      this.hangCryIn = Math.max(0, this.hangCryIn - dt)
+      if (this.hangCryIn === 0 && this.audio.startBodyCry({ x: this.hangX, y: 1.7, z: this.hangZ })) {
+        this.hangCryDone = true
+        this.hangCryOn = true
+      }
+    }
+    if (this.hangCryOn) this.audio.tickBodyCry({ x: this.hangX, y: this.hangBody.position.y + 0.15, z: this.hangZ })
+    if (this.hangPhase === 'hung' && this.hangFallIn === 0) this.beginHangFeet()
+  }
+
+  /** Drops off the rope onto both feet, then faces the player. */
+  private beginHangFeet(): void {
+    if (!this.hangBody || !this.hangRope || this.hangPhase !== 'hung') return
+    this.hangPhase = 'feet'
+    this.hangT = 0
+    this.hangCryOn = false
+    this.audio.stopLeftCry()
+    this.hangRope.visible = false
+  }
+
+  private stepHangFeet(): void {
+    if (!this.hangBody) return
+    const drop = 0.28
+    const u = Math.min(1, this.hangT / drop)
+    const ease = u * u
+    const neck = 1.84 + (1.28 - 1.84) * ease
+    this.hangBody.position.set(this.hangX, neck, this.hangZ)
+    const head = this.hangBody.getObjectByName('hang-head')
+    if (head) head.rotation.z = 0.42 * (1 - ease)
+    this.faceHang()
+    if (u < 1) return
+    this.hangPhase = 'stare'
+    this.hangRunIn = 2
+    this.audio.play('doorSlam', { x: this.hangX, y: 0.35, z: this.hangZ }, { volume: 1.9, rate: 0.55 })
+    if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.9)
+  }
+
+  private stepHangStare(dt: number): void {
+    if (!this.hangBody) return
+    this.hangBody.position.set(this.hangX, 1.28, this.hangZ)
+    this.faceHang()
+    if (this.hangRunIn < 0) return
+    this.hangRunIn = Math.max(0, this.hangRunIn - dt)
+    if (this.hangRunIn === 0) this.beginHangFlee()
+  }
+
+  /** After the stare, the figure sprints through the locked stair door and up the flight. */
+  private beginHangFlee(): void {
+    if (!this.hangBody || this.hangPhase === 'flee') return
+    const door = this.world.doors.find((item) => item.id === 'door_slag_trappe')
+    const at = door ? this.doorPos(door) : { x: 48, y: 1, z: 6 }
+    this.hangPhase = 'flee'
+    this.hangT = 0
+    this.hangFleeI = 0
+    this.hangFleeShut = false
+    this.hangFlee = [
+      new THREE.Vector3(at.x - 0.85, 1.28, at.z),
+      new THREE.Vector3(at.x + 1.35, 1.28, at.z),
+      new THREE.Vector3(52.05, 1.7, 2.4),
+      new THREE.Vector3(52.05, 4.15, 5.15),
+    ]
+    if (this.hangRope) this.hangRope.visible = false
+    this.desired.set('door_slag_trappe', 1)
+    const mouth = { x: this.hangBody.position.x, y: 1.5, z: this.hangBody.position.z }
+    this.audio.playClip('hangLaugh', mouth, 1.6, true)
+    this.audio.hush(5)
+  }
+
+  private stepHangFlee(dt: number): void {
+    if (!this.hangBody) return
+    const target = this.hangFlee[this.hangFleeI]
+    if (!target) {
+      this.hangBody.visible = false
+      this.hangPhase = 'off'
+      this.desired.set('door_slag_trappe', 0)
+      return
+    }
+    const dx = target.x - this.hangBody.position.x
+    const dy = target.y - this.hangBody.position.y
+    const dz = target.z - this.hangBody.position.z
+    const dist = Math.hypot(dx, dz) || 0.001
+    const step = Math.min(dist, 7.4 * dt)
+    const x = this.hangBody.position.x + (dx / dist) * step
+    const z = this.hangBody.position.z + (dz / dist) * step
+    const y = this.hangBody.position.y + dy * Math.min(1, step / dist)
+    this.hangBody.position.set(x, y, z)
+    this.hangBody.rotation.y = Math.atan2(dx, dz)
+    this.audio.moveTracked({ x, y: y + 0.3, z })
+    if (!this.hangFleeShut && this.hangFleeI >= 1) {
+      this.hangFleeShut = true
+      this.desired.set('door_slag_trappe', 0)
+      const door = this.world.doors.find((item) => item.id === 'door_slag_trappe')
+      const at = door ? this.doorPos(door) : { x, y: 1, z }
+      this.audio.play('doorSlam', at, { volume: 1.8 })
+    }
+    if (dist < 0.18) this.hangFleeI += 1
+  }
+
+  private slamDoor(id: string): void {
+    const door = this.world.doors.find((item) => item.id === id)
+    if (!door) return
+    this.desired.set(id, 0)
+    this.audio.play('doorSlam', this.doorPos(door), { volume: 1.85 })
+  }
+
+  private faceHang(): void {
+    if (!this.hangBody) return
+    this.hangBody.rotation.y = Math.atan2(this.sim.x - this.hangX, this.sim.z - this.hangZ)
+  }
+
+  private stepButcherCharge(dt: number): void {
+    if (this.butcherRoar > 0) {
+      if (!this.butcher.visible) this.butcherRoar = 0
+      else {
+        this.butcherRoar -= 1
+        if (this.butcherRoar === 0) {
+          this.audio.play('scream', { x: this.butcher.position.x, y: 1.6, z: this.butcher.position.z }, { volume: 0.72 })
+          if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.34)
+        }
+      }
+    }
+    if ((this.snap.events?.slagter ?? 0) !== 3 || !this.butcher.visible) return
+    const dx = this.sim.x - this.butcher.position.x
+    const dz = this.sim.z - this.butcher.position.z
+    const dist = Math.hypot(dx, dz) || 0.001
+    const step = Math.min(dist - 1.7, 5.6 * dt)
+    if (step > 0) {
+      this.butcher.position.x += (dx / dist) * step
+      this.butcher.position.z += (dz / dist) * step
+    }
+    this.butcher.lookAt(this.sim.x, 1.4, this.sim.z)
+    if (this.settings.cameraShake) this.trauma = Math.max(this.trauma, 0.12)
+  }
+
   private maybePeek(hit: { id: string; kind: string } | null): void {
-    if (this.peekT > 0 || this.peekCool > 0 || !hit || hit.kind !== 'door') return
+    const here = roomAt(this.world, this.sim.x, this.sim.z, this.sim.y)
+    if (here?.id === 'patientgang' || this.hallLive) return
+    if (this.passT > 0 || this.peekT > 0 || this.peekCool > 0 || !hit || hit.kind !== 'door') return
     if (Math.hypot(this.sim.vx, this.sim.vz) > 0.4) return
     if (Math.random() > 0.012) return
     const door = this.world.doors.find((d) => d.id === hit.id)
@@ -1909,23 +4637,9 @@ export class Game {
   }
 
   private stepPower(dt: number): void {
-    if (!this.snap.flags.powerCut && this.snap.playTime >= 120) {
-      this.snap.flags.powerCut = true
-      this.blackout = 3.6
-      this.fade = 1
-      this.sim.flashlightOn = false
-      this.sim.x = 42
-      this.sim.y = 0
-      this.sim.z = 8
-      this.sim.vx = 0
-      this.sim.vz = 0
-      this.sim.vy = 0
-      this.audio.play('metallic')
-      this.audio.trace.push('power-cut')
-    }
     if (this.blackout > 0) {
       this.blackout = Math.max(0, this.blackout - dt)
-      this.fade = 1
+      this.fade = this.blackout / 0.8
     }
     this.peekCool = Math.max(0, this.peekCool - dt)
     if (this.peekT > 0) {
@@ -1937,34 +4651,15 @@ export class Game {
     }
   }
 
-  private stepKnocks(): void {
-    if (!this.knocks.length) return
-    const now = this.snap.playTime
-    this.knocks = this.knocks.filter((k) => {
-      if (k.at > now) return true
-      this.audio.play('door', k.pos, { volume: 0.75 })
-      this.audio.trace.push('knock')
-      return false
-    })
-  }
-
-  private queueKnocks(): void {
-    const back = { x: -this.camDir.x, z: -this.camDir.z }
-    for (let i = 0; i < 3; i++) {
-      const dist = 7 - i * 2.2
-      this.knocks.push({
-        at: this.snap.playTime + 0.35 + i * 0.7,
-        pos: { x: this.sim.x + back.x * dist, y: this.sim.y + 1, z: this.sim.z + back.z * dist },
-      })
-    }
-  }
-
   private buildViewmodel(): THREE.Group {
     const root = new THREE.Group()
-    const skin = new THREE.MeshStandardMaterial({ color: '#e0c2a4', roughness: 0.62, emissive: '#5c4030', emissiveIntensity: 0.22, depthTest: false })
-    const bodyMat = new THREE.MeshStandardMaterial({ color: '#3a3734', roughness: 0.4, metalness: 0.7, emissive: '#141312', emissiveIntensity: 0.18, depthTest: false })
-    const headMat = new THREE.MeshStandardMaterial({ color: '#d5d0c8', roughness: 0.28, metalness: 0.8, emissive: '#2a2926', emissiveIntensity: 0.2, depthTest: false })
-    const lensMat = new THREE.MeshBasicMaterial({ color: '#fff6df', depthTest: false })
+    const housing = new THREE.Group()
+    housing.name = 'TorchShell_ProceduralFallback'
+    root.add(housing)
+    const skin = new THREE.MeshStandardMaterial({ color: '#c9aa90', roughness: 0.72, emissive: '#3a2a22', emissiveIntensity: 0.08, depthTest: false })
+    const bodyMat = new THREE.MeshStandardMaterial({ color: '#2c2a28', roughness: 0.46, metalness: 0.55, emissive: '#0c0b0a', emissiveIntensity: 0.04, depthTest: false })
+    const headMat = new THREE.MeshStandardMaterial({ color: '#8d8983', roughness: 0.34, metalness: 0.72, emissive: '#1a1917', emissiveIntensity: 0.05, depthTest: false })
+    const lensMat = new THREE.MeshStandardMaterial({ color: '#d9c7a4', roughness: 0.18, metalness: 0.15, emissive: '#f0ddb8', emissiveIntensity: 0.35, depthTest: false })
     const mark = (mesh: THREE.Object3D) => {
       mesh.frustumCulled = false
       mesh.renderOrder = 3
@@ -1975,25 +4670,80 @@ export class Game {
       return mesh
     }
     // Cylinder axis is local Y. Rotating X by 90° sends the head toward -Z, into the scene.
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.03, 0.2, 16), bodyMat)
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.028, 0.22, 16), bodyMat)
     body.rotation.x = Math.PI / 2
-    body.position.z = -0.02
-    const bezel = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.034, 0.06, 16), headMat)
+    body.position.z = 0.01
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.029, 0.029, 0.07, 12), headMat)
+    grip.rotation.x = Math.PI / 2
+    grip.position.z = 0.04
+    const bezel = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.032, 0.07, 20), headMat)
     bezel.rotation.x = Math.PI / 2
-    bezel.position.z = -0.15
-    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.034, 20), lensMat)
-    lens.position.z = -0.182
+    bezel.position.z = -0.13
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.036, 24), lensMat)
+    lens.position.z = -0.168
     lens.rotation.y = Math.PI
-    const nub = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.018, 8), headMat)
-    nub.position.set(0, 0.032, 0.02)
+    const nub = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.02, 0.018), headMat)
+    nub.position.set(0, 0.03, 0.02)
     const forearm = rod(v(0.12, -0.14, 0.16), v(0.03, -0.04, 0.04), 0.04, 0.028, skin)
     const palm = ball(v(0.02, -0.02, -0.01), 0.034, skin)
     const thumb = rod(v(0.04, -0.01, 0.02), v(0.01, 0.03, -0.06), 0.013, 0.01, skin)
-    root.add(mark(body), mark(bezel), mark(lens), mark(nub), mark(forearm), mark(palm), mark(thumb))
+    housing.add(mark(body), mark(grip), mark(bezel), mark(lens), mark(nub))
+    root.add(mark(forearm), mark(palm), mark(thumb))
     for (let i = 0; i < 3; i++) {
       const z = -0.01 - i * 0.04
       root.add(mark(rod(v(0.03, -0.01, z), v(-0.015, 0.028, z - 0.015), 0.011, 0.008, skin)))
     }
+    // Visual-only torch polish: machined aluminium collars, a rubber
+    // knurled grip, glass optic, mount screws and wrist strap. None of these
+    // meshes participate in picking, physics, light state or game rules.
+    const gripMat = new THREE.MeshStandardMaterial({
+      color: '#242728', metalness: 0.18, roughness: 0.93, depthTest: false,
+    })
+    const collarMat = new THREE.MeshStandardMaterial({
+      color: '#8d8471', metalness: 0.85, roughness: 0.40, depthTest: false,
+    })
+    const opticMat = new THREE.MeshPhysicalMaterial({
+      color: '#dad3b9', metalness: 0.08, roughness: 0.22,
+      transparent: true, opacity: 0.86, depthTest: false,
+    })
+    for (let i = 0; i < 5; i++) {
+      const rib = new THREE.Mesh(new THREE.CylinderGeometry(0.031, 0.031, 0.011, 24), gripMat)
+      rib.rotation.x = Math.PI / 2
+      rib.position.z = 0.0 + i * 0.020
+      housing.add(mark(rib))
+    }
+    for (const [z, radius, width] of [
+      [-0.125, 0.036, 0.015],
+      [-0.173, 0.044, 0.010],
+      [-0.117, 0.031, 0.009],
+    ] as const) {
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, width, 24), collarMat)
+      collar.rotation.x = Math.PI / 2
+      collar.position.z = z
+      housing.add(mark(collar))
+    }
+    const optic = new THREE.Mesh(new THREE.CircleGeometry(0.028, 24), opticMat)
+    optic.rotation.y = Math.PI
+    optic.position.z = -0.187
+    housing.add(mark(optic))
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2
+      const screw = new THREE.Mesh(new THREE.SphereGeometry(0.0032, 7, 5), gripMat)
+      screw.position.set(Math.cos(angle) * 0.037, Math.sin(angle) * 0.037, -0.182)
+      housing.add(mark(screw))
+    }
+    const strap = new THREE.Mesh(new THREE.TorusGeometry(0.037, 0.004, 5, 18), gripMat)
+    strap.rotation.y = Math.PI / 2
+    strap.position.set(0.002, -0.037, 0.085)
+    housing.add(mark(strap))
+    const wrist = rod(v(0.18, -0.19, 0.17), v(0.115, -0.145, 0.135), 0.057, 0.049, gripMat)
+    root.add(mark(wrist))
+    // Visually less intrusive on a 16:9 viewport; the spotlight position and
+    // gameplay battery/brightness calculations remain unchanged.
+    root.scale.setScalar(0.81)
+    // Asynchronously replace ONLY the metal shell with a vetted local
+    // scanned 3D model. Player hands, movement, light and battery are unchanged.
+    replaceCameraFlashlightV5(root, housing)
     root.renderOrder = 3
     return root
   }
@@ -2033,6 +4783,10 @@ export class Game {
     g.visible = false
     g.renderOrder = 20
     return g
+  }
+
+  private buildPasser(): THREE.Group {
+    return buildDoorGhost()
   }
 
   private buildButcher(): THREE.Group {
@@ -2109,10 +4863,9 @@ export class Game {
     return g
   }
 
-  private caption(text: string, seconds: number): void {
-    if (!this.settings.subtitles) return
-    this.ui.subtitle(text)
-    this.subtitleT = seconds
+  private caption(_text: string, _seconds: number): void {
+    this.ui.subtitle('')
+    this.subtitleT = 0
   }
 
   private say(text: string): void {
@@ -2149,11 +4902,14 @@ export class Game {
     const h = window.innerHeight
     this.camera.aspect = w / Math.max(1, h)
     this.camera.updateProjectionMatrix()
-    const cap = this.settings.quality === 'low' ? 1 : this.settings.quality === 'high' ? 1.5 : 1.25
-    const pr = Math.min(window.devicePixelRatio || 1, cap) * this.settings.resolutionScale
-    this.renderer.setPixelRatio(pr)
-    this.renderer.setSize(w, h, false)
-    this.post.setSize(Math.floor(w * pr), Math.floor(h * pr))
+    const budget = this.settings.quality === 'high' ? 1920 * 1200 : 1920 * 1080
+    let pr = (this.settings.resolutionScale || 1)
+    if (w * h * pr * pr > budget) pr *= Math.sqrt(budget / (w * h * pr * pr))
+    const bw = Math.max(1, Math.floor(w * pr))
+    const bh = Math.max(1, Math.floor(h * pr))
+    this.renderer.setPixelRatio(1)
+    this.renderer.setSize(bw, bh, false)
+    this.post.setSize(bw, bh)
   }
 
   private applyVolumes(): void {
@@ -2169,14 +4925,48 @@ export class Game {
     this.input.setSensitivity(this.settings.mouseSensitivity)
     if (partial.quality && partial.quality !== prev) {
       this.post.applyQuality(this.settings.quality)
-      this.renderer.shadowMap.enabled = this.settings.quality !== 'low'
-      this.spot.castShadow = this.settings.quality !== 'low'
+      const shadows = this.settings.quality !== 'low'
+      this.renderer.shadowMap.enabled = shadows
+      this.spot.castShadow = shadows
       for (const d of this.built.detail) d.visible = this.settings.quality !== 'low'
     }
-    if (partial.fullscreen !== undefined) {
-      if (this.settings.fullscreen) document.documentElement.requestFullscreen?.().catch(() => undefined)
-      else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => undefined)
+    if (partial.fullscreen !== undefined) this.applyFullscreen()
+    this.resize()
+  }
+
+  private applyFullscreen(): void {
+    const want = this.settings.fullscreen
+    const on = !!document.fullscreenElement
+    if (want === on) {
+      this.ui.fullscreenLabel(on)
+      return
     }
+    if (want) {
+      const ask = document.documentElement.requestFullscreen?.()
+      if (!ask) {
+        this.revertFullscreen()
+        return
+      }
+      ask.catch(() => this.revertFullscreen())
+      return
+    }
+    document.exitFullscreen?.().catch(() => this.revertFullscreen())
+  }
+
+  private revertFullscreen(): void {
+    this.settings = sanitizeSettings({ ...this.settings, fullscreen: !!document.fullscreenElement })
+    saveSettings(this.storage, this.settings)
+    this.ui.fillSettings(this.settings)
+    this.resize()
+  }
+
+  private syncFullscreen(): void {
+    const on = !!document.fullscreenElement
+    if (on !== this.settings.fullscreen) {
+      this.settings = sanitizeSettings({ ...this.settings, fullscreen: on })
+      saveSettings(this.storage, this.settings)
+      this.ui.fillSettings(this.settings)
+    } else this.ui.fullscreenLabel(on)
     this.resize()
   }
 
@@ -2208,6 +4998,7 @@ export class Game {
         if (data) this.applySnapshot(data.snapshot)
       }
     } else if (action === 'closeSlots') this.setMode(this.slotMode === 'save' ? 'paused' : 'menu')
+    else if (action === 'fullscreen') this.applyPatch({ fullscreen: !document.fullscreenElement })
     else if (action === 'settings') {
       this.settingsFrom = this.mode === 'playing' ? 'paused' : this.mode
       this.ui.fillSettings(this.settings)
@@ -2234,13 +5025,14 @@ export class Game {
     } else if (action === 'use') this.useSelected()
     else if (action === 'drop') this.dropSelected()
     else if (action === 'closeEx') this.setMode(this.snap.playTime > 0 && !this.ended ? 'playing' : 'menu')
+    else if (action === 'hall' && typeof extra === 'string') this.answerHall(extra)
     else if (action === 'digit' && typeof extra === 'string') {
       if (this.code.length < 4) this.code += extra
-      this.ui.keypad(this.code, 'Stiftelsesåret.')
+      this.paintCodePad()
     } else if (action === 'keyOk') this.submitCode()
     else if (action === 'keyClear') {
       this.code = ''
-      this.ui.keypad(this.code, 'Stiftelsesåret.')
+      this.paintCodePad()
     } else if (action === 'keyClose') this.setMode('playing')
     else if (action === 'patch') {
       /* unused */
@@ -2250,6 +5042,8 @@ export class Game {
       if (save) this.applySnapshot(save.snapshot)
       else this.newGame()
     } else if (action === 'endNew') this.newGame()
+    else if (action === 'watchYes') this.acceptWatch()
+    else if (action === 'watchNo') this.declineWatch()
   }
 
   private useSelected(): void {
@@ -2291,6 +5085,8 @@ export class Game {
       photos: () => game.built.photoSlots,
       signals: () => game.bus.recent(),
       hiding: () => game.hiding,
+      closet: () => ({ phase: game.closet.phase, locked: game.closet.locked, whisper: game.closet.whisper }),
+      roomPower: () => game.built.lights.reduce((sum, entry) => sum + entry.light.intensity, 0),
       face: (yaw: number) => {
         game.sim.yaw = yaw
         game.syncView()
@@ -2382,6 +5178,27 @@ export class Game {
       audioLog: () => game.audio.trace.slice(),
       monsterHidden: () => game.monster.concealed,
       events: () => game.snap.events,
+      advance: (seconds: number) => {
+        if (game.testMode) game.snap.playTime += seconds
+      },
+      tick: (seconds: number) => {
+        if (!game.testMode) return
+        let left = seconds
+        while (left > 0.0001) {
+          const dt = Math.min(0.05, left)
+          if (game.mode === 'playing') game.updatePlaying(dt)
+          left -= dt
+        }
+        game.render(0.05)
+      },
+      figure: () => ({
+        passer: game.peek.visible,
+        passerX: game.peek.position.x,
+        passerZ: game.peek.position.z,
+        butcher: game.butcher.visible,
+        butcherX: game.butcher.position.x,
+        butcherZ: game.butcher.position.z,
+      }),
       emptyLight: () => {
         game.sim.battery = 0.15
       },
@@ -2431,6 +5248,8 @@ declare global {
       photos: () => number
       signals: () => GameSignal[]
       hiding: () => string | null
+      closet: () => { phase: string; locked: number; whisper: number }
+      roomPower: () => number
       face: (yaw: number) => void
       gfx: () => { fps: number; calls: number; triangles: number; lights: number; flash: number; face: number }
       lamps: () => number[]
@@ -2462,6 +5281,9 @@ declare global {
       audioLog: () => string[]
       monsterHidden: () => boolean
       events: () => GameSnapshot['events']
+      advance: (seconds: number) => void
+      tick: (seconds: number) => void
+      figure: () => { passer: boolean; passerX: number; passerZ: number; butcher: boolean; butcherX: number; butcherZ: number }
       emptyLight: () => void
       ping: (kind: string) => void
       probe: (ms: number) => Promise<{ peak: number; jumps: number; state: string }>

@@ -71,9 +71,30 @@ export function fadeEdges(data: Float32Array, sampleRate: number, fadeSec = 0.00
 }
 
 /**
- * Pull the last few milliseconds toward the first sample so a loop
- * join does not click. The body of the recording is left alone.
+ * Keeps the first `seconds` and blends them with the audio just after the cut.
+ * The join stays at full level, so the loop never drops to silence.
  */
+export function trimLoop(ctx: AudioContext, src: AudioBuffer, seconds: number, fadeSec = 2.2): AudioBuffer {
+  const rate = src.sampleRate
+  const length = Math.max(1, Math.min(src.length, Math.floor(rate * seconds)))
+  const out = ctx.createBuffer(src.numberOfChannels, length, rate)
+  const extra = Math.max(0, src.length - length)
+  const fadeN = Math.min(Math.floor(rate * fadeSec), Math.floor(length / 4), extra)
+  for (let c = 0; c < src.numberOfChannels; c++) {
+    const from = src.getChannelData(c)
+    const to = out.getChannelData(c)
+    to.set(from.subarray(0, length))
+    if (fadeN < 8) continue
+    for (let i = 0; i < fadeN; i++) {
+      const w = i / fadeN
+      const keep = Math.cos(w * Math.PI / 2)
+      const into = Math.sin(w * Math.PI / 2)
+      to[i] = from[length + i] * keep + from[i] * into
+    }
+  }
+  return out
+}
+
 export function seamlessTail(data: Float32Array, sampleRate: number, fadeSec = 0.02): void {
   const n = Math.min(Math.floor(sampleRate * fadeSec), Math.floor(data.length / 8))
   if (n < 8) return

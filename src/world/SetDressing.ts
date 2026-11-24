@@ -73,7 +73,7 @@ export function addHospitalSetDressing(scene: THREE.Scene, rooms: RoomDef[]): ()
   }
   // Curated tabletop anchors match the current furniture; not arbitrary floats.
   const tabletop: Record<string,[number,number,number]> = {
-    reception:[4,0.83,9.5], operationsstue:[30,0.91,9.2],
+    reception:[4,0.83,9.5], operationsstue:[33.2,0.91,8.15],
     slagterum:[42,0.86,9.4], arkiv:[8,0.80,2.4],
     laboratorium:[16,0.97,9.2], obduktion:[30,0.88,9],
     personalerum:[45.8,0.96,9.2], observation:[30,0.82,2.4],

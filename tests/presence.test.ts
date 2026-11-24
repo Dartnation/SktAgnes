@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { flashlightBanishes, pickRelocate } from '../src/ai/presence'
 import { beamHits } from '../src/ai/senses'
-import { emptyScript, stepScript } from '../src/horror/ScriptedEvents'
+import { emptyScript, stepHallDark, stepScript } from '../src/horror/ScriptedEvents'
 import { CLIP_FILES } from '../src/audio/clips'
 import type { AABB } from '../src/physics/Collision'
 
@@ -49,38 +49,43 @@ describe('relocation', () => {
 })
 
 describe('scripted events', () => {
-  it('fires a room jumpscare once and then never again', () => {
-    const first = stepScript(emptyScript(), {
-      dt: 0.1, time: 10, room: 'operationsstue', prevRoom: 'patientgang', flashlight: true, prevFlash: true, lookedAway: false, atDoor: false,
-    })
-    expect(first.cues).toContain('jump:stue102')
-    const again = stepScript(first.state, {
-      dt: 0.1, time: 12, room: 'operationsstue', prevRoom: 'reception', flashlight: true, prevFlash: true, lookedAway: false, atDoor: false,
-    })
-    expect(again.cues.some((c) => c.startsWith('jump'))).toBe(false)
+  const quiet = { flashlight: false, prevFlash: false, lookedAway: false, atDoor: false }
+
+  it('lets only the door figure into the early rooms, once', () => {
+    const hall = stepScript(emptyScript(), { dt: 0.1, time: 4, room: 'patientgang', prevRoom: 'reception', ...quiet })
+    expect(hall.cues).toEqual(['pass:patient'])
+    const again = stepScript(hall.state, { dt: 0.1, time: 8, room: 'patientgang', prevRoom: 'reception', ...quiet })
+    expect(again.cues).toEqual([])
+    const theatre = stepScript(hall.state, { dt: 0.1, time: 9, room: 'operationsstue', prevRoom: 'patientgang', ...quiet })
+    expect(theatre.cues).toEqual(['pass:operation'])
+    expect(theatre.state.jumps).toEqual(['door_patient', 'door_operation'])
   })
 
-  it('runs the Slagterummet sequence in order', () => {
-    let state = emptyScript()
-    const enter = stepScript(state, {
-      dt: 0.1, time: 1, room: 'slagterum', prevRoom: 'operationsstue', flashlight: true, prevFlash: true, lookedAway: false, atDoor: false,
-    })
-    expect(enter.cues).toContain('silence')
-    state = enter.state
-    let cues: string[] = []
-    for (let i = 0; i < 8; i++) {
-      const step = stepScript(state, {
-        dt: 0.1, time: 2 + i, room: 'slagterum', prevRoom: 'slagterum', flashlight: true, prevFlash: true, lookedAway: false, atDoor: false,
-      })
-      state = step.state
-      cues = cues.concat(step.cues)
-    }
-    expect(cues).toContain('deep')
-    expect(cues).toContain('figure')
-    const gone = stepScript(state, {
-      dt: 0.1, time: 8, room: 'slagterum', prevRoom: 'slagterum', flashlight: false, prevFlash: true, lookedAway: false, atDoor: false,
-    })
-    expect(gone.cues).toContain('hide-figure')
+  it('does not summon a figure behind the player when the power fails', () => {
+    const started = stepScript(emptyScript(), { dt: 0.1, time: 2, room: 'slagterum', prevRoom: 'operationsstue', ...quiet, powerCut: true, flashlight: true, lookingAtFigure: true })
+    expect(started.state.slagter).toBe(0)
+    expect(started.cues).not.toContain('blackout')
+    expect(started.cues).not.toContain('charge')
+  })
+
+  it('blacks out the patient hall ten seconds after both shocks, then brings the lights back', () => {
+    const base = { ...emptyScript(), hallDoor: true, hallCloset: true }
+    const away = stepHallDark(base, 3, 'operationsstue')
+    expect(away.cue).toBe('')
+    expect(away.state.hallWait).toBe(10)
+    const waiting = stepHallDark(away.state, 9.5, 'patientgang')
+    expect(waiting.cue).toBe('')
+    expect(waiting.state.hallDark).toBe(0)
+    const out = stepHallDark(waiting.state, 0.6, 'patientgang')
+    expect(out.cue).toBe('out')
+    expect(out.state.hallDark).toBeGreaterThan(3)
+    const back = stepHallDark(out.state, 4, 'patientgang')
+    expect(back.cue).toBe('back')
+    expect(back.state.hallPlayed).toBe(true)
+    expect(back.state.hallDark).toBe(0)
+    const again = stepHallDark(back.state, 2, 'patientgang')
+    expect(again.cue).toBe('')
+    expect(again.state.hallWait).toBe(-1)
   })
 })
 

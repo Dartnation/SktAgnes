@@ -63,7 +63,7 @@ export function scareCooldown(tension: number): number {
   return lerp(28, 14, clamp(tension, 0, 100) / 100)
 }
 
-const SOFT: SoftKind[] = ['flicker', 'whisper', 'creak', 'knock', 'phone', 'breath', 'lightOut', 'radio', 'drop', 'thunder']
+const SOFT: SoftKind[] = ['flicker', 'whisper', 'creak', 'phone', 'breath', 'lightOut', 'radio', 'drop', 'thunder']
 
 export function stepDirector(
   state: DirectorState,

@@ -72,7 +72,8 @@ describe('horror schedule', () => {
     expect(offerSequences({ time: 40, room: 'arkiv', readIds: [], fired: [] })).toEqual([])
     expect(offerSequences({ time: 40, room: 'arkiv', readIds: ['note_log'], fired: [] })[0]?.id).toBe('arkiv_names')
     expect(offerSequences({ time: 40, room: 'arkiv', readIds: ['note_log'], fired: ['arkiv_names'] })).toEqual([])
-    expect(offerSequences({ time: 5, room: 'operationsstue', readIds: [], fired: [] })[0]?.id).toBe('obduktion_witness')
+    expect(offerSequences({ time: 5, room: 'operationsstue', readIds: [], fired: [] })).toEqual([])
+    expect(offerSequences({ time: 5, room: 'obduktion', readIds: [], fired: [] })[0]?.id).toBe('obduktion_witness')
   })
 
   it('does not add a director scare while a beat is already playing', () => {

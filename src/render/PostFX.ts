@@ -1,26 +1,26 @@
 import * as THREE from 'three'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js'
 import type { Quality } from '../systems/Settings'
 
 /**
  * Grade pass runs after bloom (and SSAO on high). It is the only place that
  * applies exposure, so the lighting stays linear until the look is finished.
  * Motion blur is a directional tap along the camera's turn, not a velocity buffer.
+ * V5 presentation: preserve dark silhouettes while reducing strong edge crush,
+ * artificial chroma fringe and warm overexposure on already red brick walls.
  */
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    uExposure: { value: 0.62 },
+    uExposure: { value: 0.71 },
     uDamage: { value: 0 },
     uFade: { value: 0 },
-    uGrain: { value: 0.012 },
-    uChroma: { value: 0.12 },
-    uVignette: { value: 0.72 },
+    uGrain: { value: 0.008 },
+    uChroma: { value: 0.065 },
+    uVignette: { value: 0.53 },
     uBlur: { value: new THREE.Vector2() },
     uTime: { value: 0 },
     uLow: { value: 0 },
@@ -61,21 +61,25 @@ const GradeShader = {
     }
 
     void main() {
-      float ab = uChroma * 0.0007;
-      vec2 o = vec2(ab, 0.0);
       vec3 col;
-      col.r = sampleBlur(vUv + o).r;
-      col.g = sampleBlur(vUv).g;
-      col.b = sampleBlur(vUv - o).b;
+      if (uChroma < 0.02 && dot(uBlur, uBlur) < 1e-8) {
+        col = texture2D(tDiffuse, vUv).rgb;
+      } else {
+        float ab = uChroma * 0.0007;
+        vec2 o = vec2(ab, 0.0);
+        col.r = sampleBlur(vUv + o).r;
+        col.g = sampleBlur(vUv).g;
+        col.b = sampleBlur(vUv - o).b;
+      }
       col = max(col, vec3(0.0));
-      col = col * uExposure + vec3(0.018);
+      col = col * uExposure + vec3(0.014);
       col = aces(col);
       float n = fract(sin(dot(vUv * vec2(uTime * 13.0, 17.0), vec2(12.9898, 78.233))) * 43758.5453);
       col += (n - 0.5) * uGrain;
       vec2 p = (vUv - 0.5) * vec2(1.15, 1.25);
       float vig = smoothstep(0.25, 1.15, length(p));
-      col *= mix(1.0, 0.22, vig * uVignette);
-      col = mix(col, vec3(0.45, 0.02, 0.015), uDamage * vig);
+      col *= mix(1.0, 0.37, vig * uVignette);
+      col = mix(col, vec3(0.32, 0.025, 0.025), uDamage * vig);
       float luma = dot(col, vec3(0.333));
       col = mix(col, vec3(luma), uLow * 0.65);
       col += vec3(uFlash);
@@ -88,8 +92,6 @@ const GradeShader = {
 export class PostFX {
   composer: EffectComposer
   private grade: ShaderPass
-  private bloom: UnrealBloomPass | null = null
-  private ssao: SSAOPass | null = null
 
   get uniforms(): typeof GradeShader.uniforms {
     return this.grade.uniforms as typeof GradeShader.uniforms
@@ -110,26 +112,8 @@ export class PostFX {
     const size = this.renderer.getSize(new THREE.Vector2())
     this.composer.dispose()
     this.composer = new EffectComposer(this.renderer)
-    this.ssao = null
-    this.bloom = null
-    if (quality === 'high') {
-      try {
-        const ssao = new SSAOPass(this.scene, this.camera, size.x, size.y, 12)
-        ssao.kernelRadius = 8
-        ssao.minDistance = 0.002
-        ssao.maxDistance = 0.08
-        this.ssao = ssao
-        this.composer.addPass(ssao)
-      } catch {
-        this.composer.addPass(new RenderPass(this.scene, this.camera))
-      }
-    } else {
-      this.composer.addPass(new RenderPass(this.scene, this.camera))
-    }
-    if (quality !== 'low') {
-      this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), quality === 'high' ? 0.28 : 0.18, 0.45, 0.86)
-      this.composer.addPass(this.bloom)
-    }
+    void quality
+    this.composer.addPass(new RenderPass(this.scene, this.camera))
     this.grade = new ShaderPass(GradeShader)
     this.composer.addPass(this.grade)
     this.composer.addPass(new OutputPass())
@@ -137,9 +121,8 @@ export class PostFX {
   }
 
   setSize(w: number, h: number): void {
+    this.composer.setPixelRatio(1)
     this.composer.setSize(w, h)
-    this.ssao?.setSize(w, h)
-    this.bloom?.setSize(w, h)
   }
 
   render(): void {

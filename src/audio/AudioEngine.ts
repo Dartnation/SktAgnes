@@ -1,7 +1,7 @@
 import type { Vec3 } from '../core/math'
 import { admitVoice, VOICE_LIMITS } from './voice'
 import { CLIP_FILES, clipUrl, type ClipKey } from './clips'
-import { fadeEdges, seamlessTail, signalPeak, signalRms, stepMarks } from './steps'
+import { fadeEdges, signalPeak, signalRms, stepMarks, trimLoop } from './steps'
 import { acceptQueuedCue, clampVolume, musicBedGain, normalisedGain, normaliseTension, REFERENCE_MUSIC, REFERENCE_SFX } from './mix'
 
 type Kind =
@@ -9,6 +9,8 @@ type Kind =
   | 'stepMonster'
   | 'door'
   | 'doorSlam'
+  | 'knock'
+  | 'hideScream'
   | 'locked'
   | 'pickup'
   | 'click'
@@ -44,7 +46,7 @@ interface PlayReq {
   epoch: number
 }
 
-const SCARE: ReadonlySet<string> = new Set(['scream', 'shadow', 'deep', 'metallic'])
+const SCARE: ReadonlySet<string> = new Set(['scream', 'shadow', 'deep', 'metallic', 'hideScream'])
 const SYNTHETIC_KINDS: Kind[] = [
   'door', 'doorSlam', 'locked', 'pickup', 'click', 'fail', 'whisper', 'growl',
   'sting', 'key', 'generator', 'creak', 'thunder', 'paper', 'heartbeat', 'breath',
@@ -78,11 +80,22 @@ export class AudioEngine {
   // companion sound pack (kept optional for development branches without media).
   private extras = new Map<'babyLaugh' | 'pigRhythm', AudioBuffer>()
   private extraTried = false
+  private knockReady = false
+  private hideReady = false
+  private chaseReady = false
+  private hangLoaded = false
+  private chasePan: StereoPannerNode | null = null
+  private chaseUntil = 0
+  private heldQuiet = false
+  private quietFade = 0
   private slices: AudioBuffer[] = []
   private activeSteps = new Set<{ source: AudioBufferSourceNode; amp: GainNode }>()
   private bed: AudioBufferSourceNode | null = null
   private bedRunning = false
+  private bedKind: 'menu' | 'game' = 'menu'
   private bedBase = 0.4
+  private gameBedBase = 0.4
+  private menuBedBase = 0.4
   private prevState = ''
   private queue: PlayReq[] = []
   private epoch = 1
@@ -90,6 +103,14 @@ export class AudioEngine {
   private voices: { kind: string; until: number }[] = []
   private lastPlayed = new Map<string, number>()
   private trackedPan: StereoPannerNode | null = null
+  private cornerSrc: AudioBufferSourceNode | null = null
+  private cornerPan: StereoPannerNode | null = null
+  private cornerAmp: GainNode | null = null
+  private cornerBase = 0.2
+  private softSrc: AudioBufferSourceNode | null = null
+  private softPan: StereoPannerNode | null = null
+  private softAmp: GainNode | null = null
+  private softBase = 0.08
   private trackNext = false
   private heartbeatLevel = 0
   private breathLevel = 0
@@ -169,7 +190,18 @@ export class AudioEngine {
       this.prevState = now
     }
     void this.loadClips()
-    void this.loadUserScares()
+      .then(() => this.loadHang())
+      .then(() => this.loadKnock())
+      .then(() => this.loadHideScream())
+      .then(() => this.loadChase())
+      .then(() => this.loadUserScares())
+      .then(() => this.warmPeaks())
+  }
+
+  /** Scan clip levels while the loading screen is up, so a scare does not freeze to measure them. */
+  private warmPeaks(): void {
+    for (const buffer of this.buffers.values()) bufferPeak(buffer)
+    for (const buffer of this.extras.values()) bufferPeak(buffer)
   }
 
   private async loadUserScares(): Promise<void> {
@@ -195,6 +227,390 @@ export class AudioEngine {
         // The separate sound pack may not be installed yet.
       }
     }))
+  }
+
+  private async loadKnock(): Promise<void> {
+    const ctx = this.ctx
+    if (!ctx || this.knockReady) return
+    try {
+      const path = import.meta.env.BASE_URL + 'audio/banker-paa-doeren.mp3'
+      const response = await fetch(path)
+      if (!response.ok) return
+      const bytes = await response.arrayBuffer()
+      if (bytes.byteLength < 1000) return
+      const decoded = await ctx.decodeAudioData(bytes.slice(0))
+      if (decoded.duration < 0.08) return
+      this.buffers.set('knock', decoded)
+      this.mark('load-ok:knock')
+    } catch {
+      this.mark('load-fail:knock')
+    } finally {
+      this.knockReady = true
+    }
+  }
+
+  private async loadHideScream(): Promise<void> {
+    const ctx = this.ctx
+    if (!ctx || this.hideReady) return
+    try {
+      const path = import.meta.env.BASE_URL + 'audio/gemme-monstre-skrig.mp3'
+      const response = await fetch(path)
+      if (!response.ok) return
+      const bytes = await response.arrayBuffer()
+      if (bytes.byteLength < 1000) return
+      const decoded = await ctx.decodeAudioData(bytes.slice(0))
+      if (decoded.duration < 0.08) return
+      this.buffers.set('hideScream', decoded)
+      this.mark('load-ok:hideScream')
+    } catch {
+      this.mark('load-fail:hideScream')
+    } finally {
+      this.hideReady = true
+    }
+  }
+
+  private async loadChase(): Promise<void> {
+    const ctx = this.ctx
+    if (!ctx || this.chaseReady) return
+    try {
+      const path = import.meta.env.BASE_URL + 'audio/loebe-efter-en.mp3'
+      const response = await fetch(path)
+      if (!response.ok) return
+      const bytes = await response.arrayBuffer()
+      if (bytes.byteLength < 1000) return
+      const decoded = await ctx.decodeAudioData(bytes.slice(0))
+      if (decoded.duration < 0.2) return
+      this.buffers.set('chase', decoded)
+      this.mark('load-ok:chase')
+    } catch {
+      this.mark('load-fail:chase')
+    } finally {
+      this.chaseReady = true
+    }
+  }
+
+  /**
+   * Footsteps from the chase recording, looped for three seconds.
+   * The last hit is a door closing, so the loop stops before it.
+   * Returns false when the file is not ready yet.
+   */
+  playChaseSteps(pos: Vec3, hardStop = false): boolean {
+    this.ensure()
+    const ctx = this.ctx
+    const buffer = this.buffers.get('chase')
+    const bus = this.sfxGain
+    if (!ctx || ctx.state !== 'running' || !buffer || !bus) return false
+    const t = ctx.currentTime
+    const src = ctx.createBufferSource()
+    src.buffer = buffer
+    src.loop = true
+    src.loopStart = 0
+    src.loopEnd = Math.min(1.25, Math.max(0.4, buffer.duration - 0.7))
+    const amp = ctx.createGain()
+    const pan = ctx.createStereoPanner()
+    const gain = normalisedGain(bufferPeak(buffer), 0.62)
+    amp.gain.setValueAtTime(0.0001, t)
+    amp.gain.linearRampToValueAtTime(Math.max(0.0001, gain * (hardStop ? 0.55 : 1)), t + 0.03)
+    if (hardStop) amp.gain.linearRampToValueAtTime(Math.max(0.0001, gain), t + 2.9)
+    else {
+      amp.gain.setValueAtTime(Math.max(0.0001, gain), t + 2.78)
+      amp.gain.linearRampToValueAtTime(0.0001, t + 3)
+    }
+    src.connect(amp)
+    amp.connect(pan)
+    pan.connect(bus)
+    pan.pan.value = this.panOf(pos)
+    src.start(t)
+    src.stop(t + (hardStop ? 3 : 3.04))
+    this.liveSources.add(src)
+    this.chasePan = pan
+    this.chaseUntil = t + 3
+    src.onended = () => {
+      this.liveSources.delete(src)
+      try { src.disconnect(); amp.disconnect(); pan.disconnect() } catch { /* already stopped */ }
+      if (this.chasePan === pan) this.chasePan = null
+    }
+    this.mark('chase')
+    return true
+  }
+
+  private async loadHang(): Promise<void> {
+    const ctx = this.ctx
+    if (!ctx || this.hangLoaded) return
+    this.hangLoaded = true
+    const files = {
+      hangDrop: 'haeng-fald.mp3',
+      cornerCry: 'graeder-hjoerne.mp3',
+      creakDoor: 'knirkende-doer.mp3',
+      jumpScare: 'jumpscare.mp3',
+      hangScream: 'skrig-haengt-mand.mp3',
+      stairGhost: 'spoegelse-trappe.mp3',
+      hangLaugh: 'griner-og-loeber.mp3',
+      stairLaugh: 'trappe-grin.mp3',
+    } as const
+    for (const id of Object.keys(files) as Array<keyof typeof files>) {
+      try {
+        const response = await fetch(import.meta.env.BASE_URL + 'audio/' + files[id])
+        if (!response.ok) continue
+        const bytes = await response.arrayBuffer()
+        if (bytes.byteLength < 1000) continue
+        const decoded = await ctx.decodeAudioData(bytes.slice(0))
+        if (decoded.duration < 0.2) continue
+        this.buffers.set(id, decoded)
+        this.mark('load-ok:' + id)
+      } catch {
+        this.mark('load-fail:' + id)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+  }
+
+  /** One recorded clip, placed in the room. Returns its length, or 0 until it can play. */
+  playClip(id: 'hangDrop' | 'cornerCry' | 'creakDoor' | 'jumpScare' | 'hangScream' | 'stairGhost' | 'hangLaugh' | 'stairLaugh', pos: Vec3, volume = 1, track = false): number {
+    this.ensure()
+    const ctx = this.ctx
+    const buffer = this.buffers.get(id)
+    const shock = id === 'hangDrop' || id === 'jumpScare' || id === 'hangScream'
+    const overhead = id === 'stairGhost'
+    const bus = shock || id === 'stairLaugh' ? (this.scareGain ?? this.sfxGain) : this.sfxGain
+    if (!ctx || ctx.state !== 'running' || !buffer || !bus) return 0
+    const distance = Math.hypot(pos.x - this.listenPos.x, pos.z - this.listenPos.z)
+    const placed = shock || overhead || id === 'stairLaugh' ? 1 : 1 / (1 + Math.max(0, distance - 0.8) * 0.16)
+    const loud = id === 'stairLaugh' ? 2.15 : shock ? 1.25 : overhead ? 1.85 : id === 'hangLaugh' ? 1.35 : 0.62
+    const gain = normalisedGain(bufferPeak(buffer), loud * Math.max(0, volume)) * placed
+    if (shock || id === 'stairLaugh') this.shockBed(id === 'hangDrop' ? 3.2 : id === 'stairLaugh' ? 2.8 : 2.4)
+    if (overhead) this.hush(Math.min(7, buffer.duration + 0.4))
+    this.trackNext = track
+    const played = this.fire(buffer, bus, gain, 1, pos, shock || id === 'stairLaugh', undefined, overhead ? 0.08 : 1, id === 'hangScream')
+    this.trackNext = false
+    if (!played) return 0
+    return buffer.duration
+  }
+
+  /** Plays a clip, holds it, then turns it down. `centered` keeps it in the middle of the headphones. */
+  playFading(id: 'creakDoor' | 'jumpScare', pos: Vec3, volume: number, hold: number, fade: number, centered = false): boolean {
+    this.ensure()
+    const ctx = this.ctx
+    const buffer = this.buffers.get(id)
+    const shock = id === 'jumpScare'
+    const bus = shock ? (this.scareGain ?? this.sfxGain) : this.sfxGain
+    if (!ctx || ctx.state !== 'running' || !buffer || !bus) return false
+    if (shock) this.shockBed(3.2)
+    const src = ctx.createBufferSource()
+    src.buffer = buffer
+    src.loop = centered && buffer.duration + 0.05 < hold + fade
+    const amp = ctx.createGain()
+    const distance = Math.hypot(pos.x - this.listenPos.x, pos.z - this.listenPos.z)
+    const placed = shock || centered ? 1 : 1 / (1 + Math.max(0, distance - 0.8) * 0.12)
+    const peak = shock ? 1.7 : 0.85
+    const gain = normalisedGain(bufferPeak(buffer), peak * Math.max(0, volume)) * placed
+    const t = ctx.currentTime
+    const dur = src.loop ? hold + fade : Math.min(buffer.duration, hold + fade)
+    const fadeFrom = Math.max(0.04, Math.min(hold, Math.max(0.04, dur * 0.5)))
+    amp.gain.setValueAtTime(Math.max(0.0001, gain), t)
+    amp.gain.setValueAtTime(Math.max(0.0001, gain), t + fadeFrom)
+    amp.gain.linearRampToValueAtTime(0.0001, t + Math.max(fadeFrom + 0.08, dur))
+    if (centered) {
+      const channels = Math.max(1, buffer.numberOfChannels)
+      const split = ctx.createChannelSplitter(channels)
+      const mono = ctx.createGain()
+      mono.gain.value = 1 / channels
+      src.connect(split)
+      for (let c = 0; c < channels; c++) split.connect(mono, c)
+      mono.connect(amp)
+      amp.connect(bus)
+    } else {
+      const pan = ctx.createStereoPanner()
+      pan.pan.value = this.panOf(pos, 1)
+      src.connect(amp)
+      amp.connect(pan)
+      pan.connect(bus)
+    }
+    src.start(t)
+    src.stop(t + dur + 0.04)
+    return true
+  }
+
+  /**
+   * Loops the cry on the hanging figure. Turning the head moves it with that body.
+   */
+  startBodyCry(pos: Vec3): boolean {
+    this.ensure()
+    const ctx = this.ctx
+    const buffer = this.buffers.get('cornerCry')
+    const bus = this.sfxGain
+    if (!ctx || ctx.state !== 'running' || !buffer || !bus || this.cornerSrc) return !!this.cornerSrc
+    const src = ctx.createBufferSource()
+    src.buffer = buffer
+    src.loop = true
+    const amp = ctx.createGain()
+    const gain = normalisedGain(bufferPeak(buffer), 0.62 * 0.85)
+    this.cornerBase = Math.max(0.0001, gain)
+    amp.gain.value = this.cornerBase
+    const pan = ctx.createStereoPanner()
+    pan.pan.value = this.panOf(pos, 1)
+    src.connect(amp)
+    amp.connect(pan)
+    pan.connect(bus)
+    src.start(ctx.currentTime)
+    src.onended = () => {
+      if (this.cornerSrc === src) {
+        this.cornerSrc = null
+        this.cornerPan = null
+        this.cornerAmp = null
+      }
+    }
+    this.cornerSrc = src
+    this.cornerPan = pan
+    this.cornerAmp = amp
+    this.tickBodyCry(pos)
+    return true
+  }
+
+  /** Keeps the cry on the hanging figure while the player moves. */
+  tickBodyCry(pos: Vec3): void {
+    if (!this.cornerPan || !this.cornerAmp) return
+    this.cornerPan.pan.value = this.panOf(pos, 1)
+    const distance = Math.hypot(pos.x - this.listenPos.x, pos.z - this.listenPos.z)
+    const placed = 1 / (1 + Math.max(0, distance - 1.1) * 0.28)
+    this.cornerAmp.gain.value = Math.max(0.0001, this.cornerBase * placed)
+  }
+
+  stopLeftCry(): void {
+    const src = this.cornerSrc
+    this.cornerSrc = null
+    this.cornerPan = null
+    this.cornerAmp = null
+    if (!src) return
+    try { src.stop() } catch { /* already ended */ }
+  }
+
+  /**
+   * A quiet, muffled cry behind a door. It stays under the knocks
+   * and does not use the hanging figure's cry.
+   */
+  startSoftCry(pos: Vec3): boolean {
+    this.ensure()
+    const ctx = this.ctx
+    const buffer = this.buffers.get('cornerCry')
+    const bus = this.sfxGain
+    if (!ctx || ctx.state !== 'running' || !buffer || !bus) return false
+    if (this.softSrc && this.softPan && this.softAmp) {
+      this.moveSoftCry(pos)
+      return true
+    }
+    const src = ctx.createBufferSource()
+    src.buffer = buffer
+    src.loop = true
+    src.playbackRate.value = 0.92
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.value = 980
+    filter.Q.value = 0.45
+    const amp = ctx.createGain()
+    const gain = normalisedGain(bufferPeak(buffer), 0.34)
+    this.softBase = Math.max(0.0001, gain)
+    amp.gain.value = this.softBase
+    const pan = ctx.createStereoPanner()
+    pan.pan.value = this.panOf(pos, 0.85)
+    src.connect(filter)
+    filter.connect(amp)
+    amp.connect(pan)
+    pan.connect(bus)
+    src.start(ctx.currentTime)
+    src.onended = () => {
+      if (this.softSrc === src) {
+        this.softSrc = null
+        this.softPan = null
+        this.softAmp = null
+      }
+    }
+    this.softSrc = src
+    this.softPan = pan
+    this.softAmp = amp
+    this.moveSoftCry(pos)
+    return true
+  }
+
+  moveSoftCry(pos: Vec3): void {
+    if (!this.softPan || !this.softAmp) return
+    this.softPan.pan.value = this.panOf(pos, 0.85)
+    const distance = Math.hypot(pos.x - this.listenPos.x, pos.z - this.listenPos.z)
+    const placed = 1 / (1 + Math.max(0, distance - 1.4) * 0.22)
+    this.softAmp.gain.value = Math.max(0.0001, this.softBase * placed)
+  }
+
+  stopSoftCry(): void {
+    const src = this.softSrc
+    this.softSrc = null
+    this.softPan = null
+    this.softAmp = null
+    if (!src) return
+    try { src.stop() } catch { /* already ended */ }
+  }
+
+  /** Stops a knock or any other one-shot that is still ringing. */
+  cutOneShots(): void {
+    this.stopLive()
+    this.chasePan = null
+    this.chaseUntil = 0
+  }
+
+  /** Keeps the running steps behind the listener for as long as they play. */
+  followChase(pos: Vec3): void {
+    if (!this.chasePan || !this.ctx || this.ctx.currentTime > this.chaseUntil) {
+      this.chasePan = null
+      return
+    }
+    this.chasePan.pan.value = this.panOf(pos)
+  }
+
+  /** Turns the room down over a short fade, then holds the silence. */
+  fadeQuiet(seconds = 0.8): void {
+    const ctx = this.ctx
+    if (this.heldQuiet || this.quietFade > 0) return
+    if (!ctx || ctx.state !== 'running') {
+      this.quiet(true)
+      return
+    }
+    const t = ctx.currentTime
+    const dur = Math.max(0.45, seconds)
+    for (const node of [this.bedGain, this.sfxGain, this.stepGain]) {
+      if (!node) continue
+      node.gain.cancelScheduledValues(t)
+      node.gain.setValueAtTime(Math.max(0.0001, node.gain.value), t)
+      node.gain.linearRampToValueAtTime(0.0001, t + dur)
+    }
+    this.quietFade = t + dur
+    this.mark('fade-quiet')
+  }
+
+  private settleFade(): void {
+    if (this.quietFade <= 0 || !this.ctx || this.ctx.currentTime < this.quietFade) return
+    this.quietFade = 0
+    this.quiet(true)
+  }
+
+  /** Stops the bed and every one-shot. The closet scream is the only sound allowed through. */
+  quiet(on: boolean): void {
+    this.heldQuiet = on
+    if (on) {
+      this.queue = this.queue.filter((item) => item.kind === 'hideScream')
+      this.stopLive()
+      this.stopBed()
+      this.holdAmbience(30)
+      this.mark('quiet')
+      return
+    }
+    this.quietFade = 0
+    this.applyGains()
+    const back = (this.ctx?.currentTime ?? 0) + 0.25
+    this.nextEnvironmentalCue = back
+    this.nextHeartbeat = back
+    this.nextBreath = back
+    this.nextElectricalCue = back
+    this.ensureBed()
+    this.mark('quiet-off')
   }
 
   /** Sparse positional accents; never a loop or a full-volume jumpscare. */
@@ -237,8 +653,11 @@ export class AudioEngine {
     this.ensure()
     const ctx = this.ctx
     if (!ctx) return
-    await Promise.all(
-      (Object.keys(CLIP_FILES) as ClipKey[]).map(async (key) => {
+    const keys = (Object.keys(CLIP_FILES) as ClipKey[]).sort((a, b) => {
+      const rank = (key: ClipKey) => (key === 'menuBed' || key === 'bed' ? 0 : 1)
+      return rank(a) - rank(b)
+    })
+    for (const key of keys) {
         const file = CLIP_FILES[key]
         try {
           const res = await fetch(clipUrl(file))
@@ -247,12 +666,15 @@ export class AudioEngine {
           if (raw.byteLength < 64) throw new Error(`tom fil (${raw.byteLength} bytes)`)
           const audio = await ctx.decodeAudioData(raw.slice(0))
           if (audio.length < 32) throw new Error('decode gav stilhed')
-          if (key === 'bed') {
-            for (let c = 0; c < audio.numberOfChannels; c++) seamlessTail(audio.getChannelData(c), audio.sampleRate)
-            this.buffers.set('bed', audio)
+          if (key === 'bed' || key === 'menuBed') {
+            if (key === 'menuBed') this.buffers.set('menuBed', trimLoop(ctx, audio, 11, 2.2))
+            else this.buffers.set('bed', audio)
             this.tuneBed()
-            this.bedRunning = false
-            this.ensureBed()
+            const active = this.bedKind === 'menu' ? 'menuBed' : 'bed'
+            if (key === active) {
+              this.bedRunning = false
+              this.ensureBed()
+            }
           } else if (key === 'step') {
             this.buffers.set('step', audio)
             this.slices = this.cutSteps(audio)
@@ -267,8 +689,8 @@ export class AudioEngine {
           this.fail(`${file}: ${message}`)
           this.mark(`load-fail:${file}`)
         }
-      }),
-    )
+        await new Promise((resolve) => setTimeout(resolve, 0))
+    }
   }
 
   /**
@@ -308,7 +730,8 @@ export class AudioEngine {
   }
 
   /** One recorded footfall. No loop, no pitch slide. */
-  playFootstep(sprint: boolean, crouch: boolean, pos?: Vec3, volume = 1): void {
+  playFootstep(sprint: boolean, crouch: boolean, pos?: Vec3, volume = 1, rate?: number): void {
+    if (this.heldQuiet) return
     this.ensure()
     const ctx = this.ctx
     // No delayed burst of footsteps after audio unlock or a slow decode.
@@ -316,11 +739,12 @@ export class AudioEngine {
     const slice = this.slices[Math.floor(Math.random() * this.slices.length)]
     const target = (crouch ? 0.09 : sprint ? 0.2 : 0.15) * (0.92 + Math.random() * 0.16)
     const gain = Math.min(3, normalisedGain(bufferPeak(slice), target) * Math.max(0, volume))
-    const rate = 0.97 + Math.random() * 0.06
-    if (this.fire(slice, this.stepGain, gain, rate, pos, false)) this.mark(pos ? 'stepMonster' : 'step')
+    const playback = rate ?? (0.97 + Math.random() * 0.06)
+    if (this.fire(slice, this.stepGain, gain, playback, pos, false)) this.mark(pos ? 'stepMonster' : 'step')
   }
 
   play(kind: Kind, pos?: Vec3, opts?: { occluded?: boolean; volume?: number; rate?: number }): void {
+    if (this.heldQuiet && kind !== 'hideScream') return
     this.ensure()
     const volume = Math.max(0, Math.min(2, opts?.volume ?? 1))
     const ctx = this.ctx
@@ -331,6 +755,16 @@ export class AudioEngine {
         this.lastPlayed.set(kind, now)
       }
       this.playFootstep(kind === 'stepMonster', false, pos, volume)
+      return
+    }
+    if (kind === 'knock' && !this.buffers.has('knock') && (!this.knockReady || !ctx || ctx.state !== 'running')) {
+      this.enqueue({ kind, pos, volume, occluded: opts?.occluded, rate: opts?.rate })
+      this.mark('defer:knock')
+      return
+    }
+    if (kind === 'hideScream' && !this.buffers.has('hideScream') && (!this.hideReady || !ctx || ctx.state !== 'running')) {
+      this.enqueue({ kind, pos, volume, occluded: opts?.occluded, rate: opts?.rate })
+      this.mark('defer:hideScream')
       return
     }
     const recorded = RECORDED_KIND[kind]
@@ -371,6 +805,22 @@ export class AudioEngine {
     this.mark('hush')
   }
 
+  /** Drops the bed under a shock so the hit sits clearly above the music. */
+  shockBed(seconds = 2.6): void {
+    const ctx = this.ctx
+    const g = this.bedGain
+    if (!ctx || !g || ctx.state !== 'running') return
+    const t = ctx.currentTime
+    const base = this.bedBase * this.musicVol / REFERENCE_MUSIC
+    const hold = Math.max(0.7, seconds * 0.45)
+    g.gain.cancelScheduledValues(t)
+    g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), t)
+    g.gain.linearRampToValueAtTime(Math.max(0.0001, base * 0.06), t + 0.03)
+    g.gain.setValueAtTime(Math.max(0.0001, base * 0.06), t + hold)
+    g.gain.linearRampToValueAtTime(base, t + Math.max(hold + 0.4, seconds))
+    this.mark('shock-bed')
+  }
+
   setVolumes(master: number, music: number, sfx: number): void {
     this.masterVol = clampVolume(master)
     this.musicVol = clampVolume(music)
@@ -399,10 +849,13 @@ export class AudioEngine {
   beginScene(): void {
     this.epoch += 1
     this.queue = []
+    this.heldQuiet = false
     this.heartbeatLevel = 0
     this.breathLevel = 0
     this.stopLive()
     this.holdAmbience(2.4)
+    this.bedRunning = false
+    this.ensureBed()
     this.mark(`scene:${this.epoch}`)
   }
 
@@ -444,6 +897,7 @@ export class AudioEngine {
   }
 
   update(_dt: number): void {
+    this.settleFade()
     const ctx = this.ctx
     if (!ctx || ctx.state !== 'running' || this.muted) return
     const t = ctx.currentTime
@@ -568,14 +1022,27 @@ export class AudioEngine {
     const limit = VOICE_LIMITS[kind] ?? { cap: 2, gap: 0.05 }
     if (!admitVoice(this.voices.filter(v => v.kind === kind).length, limit.cap, wall - (this.lastPlayed.get(kind) ?? -999), limit.gap)) return
     const recorded = RECORDED_KIND[kind]
-    const buffer = (recorded ? this.buffers.get(recorded) : this.buffers.get(`cue:${kind}`)) ?? this.buffers.get('tap')
+    const knock = kind === 'knock' ? this.buffers.get('knock') : undefined
+    const hide = kind === 'hideScream' ? this.buffers.get('hideScream') ?? this.buffers.get('scream') : undefined
+    const buffer = knock ?? hide ?? (recorded ? this.buffers.get(recorded) : this.buffers.get(`cue:${kind}`)) ?? (kind === 'knock' ? this.buffers.get('cue:doorSlam') : undefined) ?? this.buffers.get('tap')
     if (!buffer) return
     const scare = SCARE.has(kind)
-    const target = (scare ? 0.45 : kind === 'flash' ? 0.28 : 0.12) * Math.max(0, Math.min(1.4, volume))
-    const gain = normalisedGain(bufferPeak(buffer), target) * (occluded ? 0.65 : 1)
-    if (this.fire(buffer, scare ? this.scareGain : this.sfxGain, gain, rate, pos, scare)) {
+    const shock = kind === 'scream' || kind === 'hideScream' || (kind === 'doorSlam' && volume >= 1.3)
+    const loud = shock ? 1.15 : knock ? 0.62 : scare ? 0.7 : kind === 'flash' ? 0.28 : 0.12
+    const span = shock ? Math.max(1, Math.min(1.5, volume)) : Math.max(0, Math.min(knock ? 1.7 : 1.4, volume))
+    const target = loud * span
+    let placed = 1
+    if (pos && kind === 'knock') {
+      const d = Math.hypot(pos.x - this.listenPos.x, pos.z - this.listenPos.z)
+      placed = 1 / (1 + Math.max(0, d - 1) * 0.28)
+    }
+    const gain = normalisedGain(bufferPeak(buffer), target) * (occluded ? 0.65 : 1) * placed
+    const cut = kind === 'knock' ? 0.46 : undefined
+    if (shock) this.shockBed(kind === 'hideScream' ? 2.2 : 2.6)
+    const scream = kind === 'scream' || kind === 'hideScream'
+    if (this.fire(buffer, shock || scare ? this.scareGain : this.sfxGain, gain, rate, pos, shock || scare, cut, kind === 'knock' ? 1 : 0.7, scream)) {
       this.lastPlayed.set(kind, wall)
-      this.voices.push({kind, until: wall + buffer.duration / Math.max(0.2, rate)})
+      this.voices.push({kind, until: wall + (cut ?? buffer.duration) / Math.max(0.2, rate)})
       this.mark(kind)
     }
   }
@@ -588,26 +1055,38 @@ export class AudioEngine {
     rate: number,
     pos: Vec3 | undefined,
     scare: boolean,
+    cut?: number,
+    panLimit = 0.7,
+    dark = false,
   ): boolean {
     const ctx = this.ctx
     if (!ctx || !bus || ctx.state !== 'running') return false
     const t = ctx.currentTime
+    const played = dark ? rate * 0.88 : rate
     const src = ctx.createBufferSource()
     src.buffer = buffer
-    src.playbackRate.value = rate
+    src.playbackRate.value = played
     const amp = ctx.createGain()
-    const dur = Math.max(0.05, buffer.duration / rate)
-    const attack = Math.min(0.012, dur * 0.1)
+    const dur = Math.max(0.05, Math.min(buffer.duration, cut ?? buffer.duration) / played)
+    const attack = dark ? 0.028 : cut ? 0.003 : Math.min(0.012, dur * 0.1)
     const release = Math.min(0.02, dur * 0.15)
     amp.gain.setValueAtTime(0, t)
     amp.gain.linearRampToValueAtTime(Math.max(0.0001, gain), t + attack)
     amp.gain.setValueAtTime(Math.max(0.0001, gain), t + Math.max(attack, dur - release))
     amp.gain.linearRampToValueAtTime(0.0001, t + dur)
-    src.connect(amp)
+    let filter: BiquadFilterNode | null = null
+    if (dark) {
+      filter = ctx.createBiquadFilter()
+      filter.type = 'lowpass'
+      filter.frequency.value = 2100
+      filter.Q.value = 0.6
+      src.connect(filter)
+      filter.connect(amp)
+    } else src.connect(amp)
     let pan: StereoPannerNode | null = null
     if (pos) {
       pan = ctx.createStereoPanner()
-      pan.pan.value = this.panOf(pos) * (scare ? 0.55 : 1)
+      pan.pan.value = this.panOf(pos, panLimit) * (scare ? 0.55 : 1)
       amp.connect(pan)
       pan.connect(bus)
       if (this.trackNext) this.trackedPan = pan
@@ -623,6 +1102,7 @@ export class AudioEngine {
       }
       try {
         src.disconnect()
+        filter?.disconnect()
         amp.disconnect()
         pan?.disconnect()
       } catch {
@@ -633,11 +1113,11 @@ export class AudioEngine {
     return true
   }
 
-  private panOf(pos: Vec3): number {
+  private panOf(pos: Vec3, limit = 0.7): number {
     const dx = pos.x - this.listenPos.x
     const dz = pos.z - this.listenPos.z
     const side = (dx * this.listenRight.x + dz * this.listenRight.z) / (Math.hypot(dx, dz) || 1)
-    return Math.max(-0.7, Math.min(0.7, side))
+    return Math.max(-limit, Math.min(limit, side))
   }
 
   private enqueue(req: Omit<PlayReq, 'queuedAt' | 'epoch'>): void {
@@ -677,10 +1157,26 @@ export class AudioEngine {
     this.activeSteps.clear()
   }
 
+  /** The new loop stays on the title screen. The old loop is the one inside the game. */
+  useMenuBed(menu: boolean): void {
+    const next = menu ? 'menu' : 'game'
+    const same = next === this.bedKind
+    this.bedKind = next
+    this.bedBase = next === 'menu' ? this.menuBedBase : this.gameBedBase
+    if (same && this.bedRunning) {
+      this.applyGains()
+      return
+    }
+    this.bedRunning = false
+    this.stopBed()
+    this.applyGains()
+    this.ensureBed()
+  }
+
   private ensureBed(): void {
-    if (this.bedRunning) return
+    if (this.heldQuiet || this.bedRunning) return
     const ctx = this.ctx
-    const buf = this.buffers.get('bed')
+    const buf = this.buffers.get(this.bedKind === 'menu' ? 'menuBed' : 'bed')
     if (!ctx || ctx.state !== 'running' || !buf || !this.bedGain) return
     this.stopBed()
     const src = ctx.createBufferSource()
@@ -710,9 +1206,11 @@ export class AudioEngine {
   }
 
   private tuneBed(): void {
-    const buf = this.buffers.get('bed')
-    if (!buf) return
-    this.bedBase = musicBedGain(bufferRms(buf), bufferPeak(buf))
+    const game = this.buffers.get('bed')
+    if (game) this.gameBedBase = musicBedGain(bufferRms(game), bufferPeak(game)) * 0.84
+    const menu = this.buffers.get('menuBed')
+    if (menu) this.menuBedBase = musicBedGain(bufferRms(menu), bufferPeak(menu))
+    this.bedBase = this.bedKind === 'menu' ? this.menuBedBase : this.gameBedBase
     this.applyGains()
   }
 
@@ -791,9 +1289,14 @@ export class AudioEngine {
   }
 }
 
+const peakCache = new WeakMap<AudioBuffer, number>()
+
 function bufferPeak(buffer: AudioBuffer): number {
+  const cached = peakCache.get(buffer)
+  if (cached !== undefined) return cached
   let peak = 0
   for (let c = 0; c < buffer.numberOfChannels; c++) peak = Math.max(peak, signalPeak(buffer.getChannelData(c)))
+  peakCache.set(buffer, peak)
   return peak
 }
 

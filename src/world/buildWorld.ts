@@ -609,17 +609,17 @@ function lightSpec(mode: RoomDef['light']): {
     case 'always-warm':
       return { color: '#f0c49f', intensity: 5.7, distance: 9.5, mode: 'always', flicker: true }
     case 'always-dim':
-      return { color: '#cbbfba', intensity: 3.2, distance: 7.5, mode: 'always', flicker: true }
+      return { color: '#d4c8c2', intensity: 5.2, distance: 9.2, mode: 'always', flicker: true }
     case 'always-candle':
-      return { color: '#ff9d62', intensity: 3.9, distance: 7.0, mode: 'always', flicker: true }
+      return { color: '#ff9d62', intensity: 5.0, distance: 8.2, mode: 'always', flicker: true }
     case 'always-red':
-      return { color: '#d4473f', intensity: 3.8, distance: 7.5, mode: 'always', flicker: true }
+      return { color: '#d4473f', intensity: 4.6, distance: 8.4, mode: 'always', flicker: true }
     case 'secret':
       return { color: '#e1c7a6', intensity: 5.0, distance: 8.0, mode: 'secret', flicker: true }
     case 'power':
       return { color: '#b5c6ce', intensity: 5.1, distance: 9, mode: 'power', flicker: false }
     default:
-      return { color: '#ffffff', intensity: 0, distance: 1, mode: 'always', flicker: false }
+      return { color: '#c8beb4', intensity: 2.8, distance: 8, mode: 'always', flicker: false }
   }
 }
 
@@ -633,20 +633,20 @@ export function stairHeight(stair: StairDef, x: number, z: number): number | nul
 }
 
 export function sampleFloorY(world: World, x: number, z: number, currentY: number): number | null {
+  const step = 0.5
   for (const s of world.stairs) {
     const h = stairHeight(s, x, z)
-    if (h !== null) return h
+    // The ramp only carries you if your feet are already on it.
+    // Touching the high end from the floor below must not skip the flight.
+    if (h !== null && h <= currentY + step && h >= currentY - 1.4) return h
   }
   let best: number | null = null
-  let bestD = 1e9
   for (const r of world.rooms) {
     if (x < r.x || x > r.x + r.w || z < r.z || z > r.z + r.d) continue
     const y = FLOOR_Y[r.floor]
-    const d = Math.abs(y - currentY)
-    if (d < bestD) {
-      bestD = d
-      best = y
-    }
+    // A jump stays on the floor it left. The next storey is still out of reach.
+    if (y > currentY + step || currentY - y > 3.2) continue
+    if (best === null || y > best) best = y
   }
   return best
 }
