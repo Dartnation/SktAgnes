@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { FLOOR_Y, type PropDef, type RoomDef } from './data'
+import { scannedAssetId } from './ScannedAssetsV5'
 
 /**
  * V5 surface detail on the existing world's known furniture anchors.
@@ -129,6 +130,9 @@ export function addVisualDetailV5(
   }
 
   for (const p of props) {
+    // A high-fidelity scan is the entire visible prop. Do not overlay
+    // procedural drawer handles, trays, wheels or folders into the new GLTF.
+    if (scannedAssetId(p.id)) continue
     const height = p.h
     const surface = height + 0.016
     switch (p.kind) {
