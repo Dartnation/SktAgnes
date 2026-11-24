@@ -1071,34 +1071,77 @@ function sign(scene: THREE.Scene, door: DoorInst, materials: Materials) {
   }
 }
 
+/** Art-only collectible models, keeping the existing pick-up anchor and IDs. */
 function pickupMesh(itemId: string, materials: Materials): THREE.Object3D {
-  const g = new THREE.Group()
-  let mesh: THREE.Mesh
-  if (itemId.includes('fuse')) {
-    const color = itemId.includes('red') ? '#b4231c' : itemId.includes('blue') ? '#2458a8' : '#c6a227'
-    mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 0.16, 8),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.3, emissive: color, emissiveIntensity: 0.2 }),
-    )
-  } else if (itemId === 'battery') {
-    mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.16, 8), materials.metal)
-  } else if (itemId.includes('key')) {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.05), materials.metal)
-  } else if (itemId === 'medkit') {
-    mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.22, 0.1, 0.16),
-      new THREE.MeshStandardMaterial({ color: '#f2f2f0', roughness: 0.5 }),
-    )
-  } else if (itemId === 'rosary') {
-    mesh = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.015, 6, 12), materials.metal)
-  } else if (itemId === 'crowbar') {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.04), materials.metal)
-    mesh.rotation.z = 0.4
-  } else if (itemId === 'evidence') {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.2), materials.door)
-  } else {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.16), materials.door)
+  const root = new THREE.Group()
+  root.name = 'CollectibleArt_' + itemId
+  const brass = new THREE.MeshStandardMaterial({ color: '#b59a63', roughness: 0.48, metalness: 0.8 })
+  const dark = new THREE.MeshStandardMaterial({ color: '#252a2b', roughness: 0.66, metalness: 0.5 })
+  const ivory = new THREE.MeshStandardMaterial({ color: '#c7bca1', roughness: 0.93 })
+  const red = new THREE.MeshStandardMaterial({ color: '#a7523c', roughness: 0.66 })
+  const add = (g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0) => {
+    const mesh = new THREE.Mesh(g, m)
+    mesh.position.set(x, y, z)
+    mesh.castShadow = true
+    root.add(mesh)
+    return mesh
   }
-  g.add(mesh)
-  return g
+  if (itemId === 'battery') {
+    // Distinct 1980s zinc-carbon flashlight cell: cap, terminal and label.
+    add(new THREE.CylinderGeometry(0.044, 0.044, 0.175, 20), dark)
+    add(new THREE.CylinderGeometry(0.045, 0.045, 0.025, 20), brass, 0, 0.079)
+    add(new THREE.CylinderGeometry(0.018, 0.018, 0.015, 16), brass, 0, 0.10)
+    add(new THREE.CylinderGeometry(0.046, 0.046, 0.08, 20, 1, true), red, 0, 0.011)
+    add(new THREE.BoxGeometry(0.073, 0.015, 0.008), ivory, 0, 0.015, -0.044)
+  } else if (itemId.includes('fuse')) {
+    const color = itemId.includes('red') ? '#ac453b'
+      : itemId.includes('blue') ? '#4b7994' : '#b7a061'
+    const ceramic = new THREE.MeshStandardMaterial({ color, roughness: 0.49, metalness: 0.11 })
+    // Coloured ceramic cartridge and conductive contacts.
+    const cartridge = add(new THREE.CylinderGeometry(0.035, 0.035, 0.17, 18), ceramic)
+    cartridge.rotation.z = Math.PI / 2
+    for (const x of [-0.09, 0.09]) {
+      const cap = add(new THREE.CylinderGeometry(0.041, 0.041, 0.024, 16), brass, x)
+      cap.rotation.z = Math.PI / 2
+    }
+    const index = add(new THREE.BoxGeometry(0.07, 0.016, 0.013), ivory, 0, 0.027, -0.028)
+    index.rotation.z = 0.04
+  } else if (itemId.includes('key')) {
+    // Proper bored bow, blade and two distinct teeth.
+    add(new THREE.TorusGeometry(0.055, 0.013, 9, 24), brass, -0.065, 0.0)
+    add(new THREE.BoxGeometry(0.145, 0.023, 0.023), brass, 0.045, 0)
+    for (const x of [0.091, 0.129])
+      add(new THREE.BoxGeometry(0.020, 0.034, 0.026), brass, x, -0.020)
+    add(new THREE.BoxGeometry(0.044, 0.032, 0.029), dark, -0.005, 0)
+  } else if (itemId === 'medkit') {
+    add(new THREE.BoxGeometry(0.27, 0.105, 0.19), ivory)
+    add(new THREE.BoxGeometry(0.276, 0.01, 0.20), materials.trim, 0, 0.030)
+    add(new THREE.BoxGeometry(0.043, 0.011, 0.015), red, 0, 0.060, -0.053)
+    add(new THREE.BoxGeometry(0.011, 0.043, 0.015), red, 0, 0.060, -0.053)
+    add(new THREE.BoxGeometry(0.065, 0.015, 0.02), dark, 0, 0.061, 0.074)
+  } else if (itemId === 'rosary') {
+    // 16 individual beads around a suspended metal cross.
+    for (let j = 0; j < 16; j++) {
+      const a = j / 16 * Math.PI * 2
+      add(new THREE.SphereGeometry(0.012, 8, 6), dark,
+        Math.cos(a) * 0.064, Math.sin(a) * 0.08, 0)
+    }
+    add(new THREE.BoxGeometry(0.018, 0.08, 0.012), brass, 0, -0.125)
+    add(new THREE.BoxGeometry(0.061, 0.014, 0.013), brass, 0, -0.112)
+  } else if (itemId === 'crowbar') {
+    const shaft = add(new THREE.CylinderGeometry(0.016, 0.019, 0.45, 12), dark)
+    shaft.rotation.z = Math.PI / 2 + 0.25
+    const hook = add(new THREE.TorusGeometry(0.051, 0.014, 8, 18, Math.PI * 0.85), brass,
+      0.20, 0.065)
+    hook.rotation.z = 0.5
+  } else {
+    // Folded paper, stamped cover, thread spine: documents stay recognisable
+    // even with no HUD and without revealing the note's contents.
+    add(new THREE.BoxGeometry(0.27, 0.012, 0.19), ivory)
+    add(new THREE.BoxGeometry(0.21, 0.005, 0.004), materials.trim, 0, 0.010, -0.052)
+    add(new THREE.BoxGeometry(0.18, 0.005, 0.004), materials.trim, -0.014, 0.010, -0.030)
+    add(new THREE.BoxGeometry(0.12, 0.005, 0.004), materials.trim, -0.044, 0.010, -0.008)
+    add(new THREE.BoxGeometry(0.075, 0.006, 0.044), red, 0.080, 0.010, 0.045)
+  }
+  return root
 }
