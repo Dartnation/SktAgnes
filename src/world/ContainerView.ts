@@ -14,6 +14,10 @@ export interface ContainerRig {
   mover: THREE.Object3D
 }
 
+// The tray's front is at local z=.225; the casing ends at z=.025.
+// Recess the tray into its casing before applying the existing slide distance.
+const DRAWER_CLOSED_Z = -0.20
+
 const timber = new THREE.MeshStandardMaterial({ color: '#554638', roughness: 0.92 })
 const veneer = new THREE.MeshStandardMaterial({ color: '#6e5742', roughness: 0.81 })
 const recess = new THREE.MeshStandardMaterial({ color: '#2d2926', roughness: 1 })
@@ -67,6 +71,7 @@ function drawer(spec: ContainerSpec, root: THREE.Group): ContainerRig {
   }
   const mover = new THREE.Group()
   mover.name = 'drawer_mover'
+  mover.position.z = DRAWER_CLOSED_Z
   // Wooden/metal tray with an exposed dark interior and real upright sides.
   block(mover, frontMaterial, 0, -0.055, 0.005, 0.66, 0.022, 0.34)
   block(mover, casing, -0.315, 0.0, 0.005, 0.020, 0.12, 0.33)
@@ -150,7 +155,7 @@ function createLoot(itemId: string): THREE.Group {
 export function applyContainerPose(spec: ContainerSpec, state: ContainerState, mover: THREE.Object3D): void {
   const pose = containerTransform(spec, state)
   if (spec.kind === 'drawer') {
-    mover.position.z = pose.slide
+    mover.position.z = DRAWER_CLOSED_Z + pose.slide
     mover.rotation.y = 0
   } else {
     mover.position.z = 0
