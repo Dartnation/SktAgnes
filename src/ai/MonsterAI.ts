@@ -3,6 +3,7 @@ import { angDiff, forwardFromYaw, type Vec3 } from '../core/math'
 import { findPath, type NavGrid, type PathQuery } from './Pathfinding'
 import { createMonsterBB, stepMonster, type MonsterBB, type MonsterStateName } from './MonsterBrain'
 import { beamEffect, bodyLean, clipForState } from './MonsterAnim'
+import { decorateMonsterV5 } from './MonsterLookV5'
 import { approximateHearing, beamHits, canHear, hearingScale, inVisionCone, noiseLoudness, type NoiseKind } from './senses'
 import { resolveMovement, type AABB } from '../physics/Collision'
 import type { DoorInst } from '../world/buildWorld'
@@ -183,6 +184,9 @@ export class MonsterActor {
     restraint.rotation.z = -0.17
     spine.add(restraint)
 
+    // Purely visual cloth and cowl details, attached to the current rig joints.
+    // No AI, hitbox, chase logic or pose update is changed.
+    decorateMonsterV5(spine, head, pelvis)
     this.group.add(pelvis)
     this.group.visible = false
   }
