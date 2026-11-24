@@ -8,6 +8,7 @@ import { createMaterials, type Materials } from './textures'
 import { addHospitalSetDressing } from './SetDressing'
 import { addVisualV3 } from './VisualV3'
 import { addCinematicArtV3 } from './CinematicArtV3'
+import { addVisualIdentityV4 } from './VisualIdentityV4'
 
 export interface BuiltWorld {
   materials: Materials
@@ -46,6 +47,7 @@ export function buildLevel(scene: THREE.Scene, world: World, photos?: Map<string
   const disposeDressing = addHospitalSetDressing(scene, world.rooms)
   const disposeVisualV3 = addVisualV3(scene, world.rooms)
   const disposeCinematicArtV3 = addCinematicArtV3(scene, world.rooms, world.props)
+  const disposeVisualIdentityV4 = addVisualIdentityV4(scene, world.rooms)
   const buckets = new Map<string, THREE.BufferGeometry[]>()
   const push = (key: string, geo: THREE.BufferGeometry) => {
     const list = buckets.get(key) ?? []
@@ -429,6 +431,7 @@ export function buildLevel(scene: THREE.Scene, world: World, photos?: Map<string
     rain,
     photoSlots,
     dispose() {
+      disposeVisualIdentityV4()
       disposeCinematicArtV3()
       disposeVisualV3()
       disposeDressing()
@@ -551,6 +554,96 @@ function part(w: number, h: number, d: number, x: number, y: number, z: number, 
   return { geo, mat }
 }
 
+/** Position a real curved detail in the shared material batches. */
+function detailedPart(
+  geo: THREE.BufferGeometry,
+  mat: keyof Materials,
+  x: number, y: number, z: number,
+  rotX = 0, rotY = 0, rotZ = 0,
+): Part {
+  if (rotX) geo.rotateX(rotX)
+  if (rotY) geo.rotateY(rotY)
+  if (rotZ) geo.rotateZ(rotZ)
+  geo.translate(x, y, z)
+  return { geo, mat }
+}
+
+/**
+ * 1980s iron safe: the interaction side faces -Z (the device sits at
+ * z=8.55, while the archive safe is at z=9.55). The old safe had its tiny
+ * handle on +Z, i.e. the player saw a blank back wall. This is art only;
+ * the safe's prop ID, hitbox, keypad and save state remain unchanged.
+ */
+function safeArt(w: number, h: number, d: number): Part[] {
+  const face = -d * 0.5
+  const parts: Part[] = [
+    // Cast-iron feet, chamfered plinth and full-depth shell.
+    part(w * 0.95, 0.055, d * 0.91, 0, 0.018, 0, 'trim'),
+    part(w, h * 0.87, d * 0.96, 0, h * 0.065, 0, 'metal'),
+    part(w * 1.025, 0.055, d * 1.015, 0, h - 0.055, 0, 'trim'),
+    // Heavy welded rim and door gap facing the player.
+    part(w * 0.89, h * 0.79, 0.033, 0, h * 0.115, face - 0.013, 'trim'),
+    part(w * 0.82, h * 0.72, 0.025, 0, h * 0.148, face - 0.036, 'monster'),
+    part(w * 0.79, h * 0.68, 0.039, 0, h * 0.16, face - 0.054, 'metal'),
+    // Strong hinges placed on the right-hand side of the near face.
+    ...[0.29, 0.70].map((height) =>
+      detailedPart(new THREE.CylinderGeometry(0.027, 0.027, h * 0.16, 12),
+        'trim', w * 0.43, h * height, face - 0.063)),
+    // Large engraved key/serial plate below the dial.
+    part(w * 0.42, h * 0.084, 0.012, -w * 0.15, h * 0.246, face - 0.080, 'trim'),
+    part(w * 0.36, h * 0.039, 0.014, -w * 0.15, h * 0.266, face - 0.090, 'stone'),
+  ]
+  // Combination dial with layered concentric metal rings and readable tick marks.
+  const dialX = -w * 0.165
+  const dialY = h * 0.625
+  parts.push(
+    detailedPart(new THREE.CylinderGeometry(w * 0.185, w * 0.185, 0.02, 32), 'trim',
+      dialX, dialY, face - 0.095, Math.PI / 2),
+    detailedPart(new THREE.TorusGeometry(w * 0.148, 0.008, 8, 36), 'stone',
+      dialX, dialY, face - 0.114),
+    detailedPart(new THREE.CylinderGeometry(w * 0.105, w * 0.105, 0.015, 28), 'metal',
+      dialX, dialY, face - 0.121, Math.PI / 2),
+    detailedPart(new THREE.CylinderGeometry(w * 0.039, w * 0.039, 0.019, 16), 'trim',
+      dialX, dialY, face - 0.137, Math.PI / 2),
+  )
+  for (let i = 0; i < 24; i++) {
+    const a = i * Math.PI * 2 / 24
+    const radius = w * 0.145
+    parts.push(part(0.007, i % 6 === 0 ? 0.025 : 0.012, 0.005,
+      dialX + Math.sin(a) * radius, dialY + Math.cos(a) * radius - (i % 6 === 0 ? 0.0125 : 0.006),
+      face - 0.121, 'trim'))
+  }
+  // Three-spoke steel opening wheel and a small central latch.
+  const handleX = w * 0.24
+  const handleY = h * 0.55
+  parts.push(
+    detailedPart(new THREE.TorusGeometry(w * 0.105, 0.012, 9, 24), 'trim',
+      handleX, handleY, face - 0.116),
+    detailedPart(new THREE.CylinderGeometry(0.027, 0.027, 0.06, 16), 'trim',
+      handleX, handleY, face - 0.116, Math.PI / 2),
+  )
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2
+    const beam = new THREE.BoxGeometry(w * 0.167, 0.014, 0.017)
+    beam.rotateZ(a)
+    beam.translate(handleX + Math.cos(a) * w * 0.073,
+      handleY + Math.sin(a) * w * 0.073, face - 0.122)
+    parts.push({ geo: beam, mat: 'trim' })
+  }
+  // Corner bolts and ventilation cuts; visual hardware not separate collision.
+  for (const side of [-1, 1]) {
+    for (const yy of [0.21, 0.82]) {
+      parts.push(detailedPart(new THREE.CylinderGeometry(0.014, 0.014, 0.009, 10),
+        'stone', side * w * 0.355, h * yy, face - 0.085, Math.PI / 2))
+    }
+  }
+  for (let i = 0; i < 4; i++) {
+    parts.push(part(w * 0.36, 0.008, 0.006, -w * 0.11, h * (0.10 + i * 0.017),
+      face - 0.086, 'monster'))
+  }
+  return parts
+}
+
 function buildProp(kind: string, w: number, h: number, d: number): Part[] {
   switch (kind) {
     case 'pillar':
@@ -583,31 +676,92 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
       return parts
     }
     case 'desk':
-    case 'table':
-      return [
-        part(w, 0.08, d, 0, h - 0.08, 0, 'wood'),
-        part(0.08, h - 0.08, 0.08, -w / 2 + 0.08, 0, -d / 2 + 0.08, 'wood'),
-        part(0.08, h - 0.08, 0.08, w / 2 - 0.08, 0, -d / 2 + 0.08, 'wood'),
-        part(0.08, h - 0.08, 0.08, -w / 2 + 0.08, 0, d / 2 - 0.08, 'wood'),
-        part(0.08, h - 0.08, 0.08, w / 2 - 0.08, 0, d / 2 - 0.08, 'wood'),
+    case 'table': {
+      // Period workbench: steel apron, visible frame, real tabletop edge and
+      // a cross-braced undercarriage. Same collision footprint.
+      const result: Part[] = [
+        part(w, 0.076, d, 0, h - 0.076, 0, 'wood'),
+        part(w * 0.97, 0.016, d * 0.98, 0, h - 0.012, 0, 'trim'),
+        part(w - 0.13, 0.10, 0.043, 0, h - 0.20, -d * 0.42, 'metal'),
+        part(w - 0.13, 0.10, 0.043, 0, h - 0.20, d * 0.42, 'metal'),
+        part(0.045, 0.12, d * 0.80, -w * 0.42, h - 0.21, 0, 'metal'),
+        part(0.045, 0.12, d * 0.80, w * 0.42, h - 0.21, 0, 'metal'),
+        part(w * 0.76, 0.038, d * 0.48, 0, 0.21, 0, 'metal'),
       ]
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        const x = sx * (w / 2 - 0.09), z = sz * (d / 2 - 0.08)
+        result.push(
+          part(0.07, h - 0.10, 0.07, x, 0, z, 'metal'),
+          part(0.11, 0.025, 0.11, x, 0.005, z, 'trim'),
+        )
+      }
+      return result
+    }
     case 'shelf':
-    case 'bookshelf':
-      return [
-        part(w, h, 0.06, 0, 0, -d / 2, 'wood'),
-        part(w, 0.05, d, 0, 0.15, 0, 'wood'),
-        part(w, 0.05, d, 0, h * 0.45, 0, 'wood'),
-        part(w, 0.05, d, 0, h * 0.75, 0, 'wood'),
+    case 'bookshelf': {
+      // Every shelf has a back frame, exposed ends, adjustable shelves and
+      // mixed-size records. The room's z axis is often the long shelf axis.
+      const parts: Part[] = [
+        part(w * 0.90, h * 0.94, 0.035, 0, 0.08, -d * 0.47, 'wood'),
+        part(w * 0.90, 0.06, d, 0, h - 0.06, 0, 'trim'),
+        part(w * 0.90, 0.06, d, 0, 0.035, 0, 'trim'),
+        ...[-1, 1].map(side =>
+          part(w * 0.87, h, 0.038, 0, 0, side * (d / 2 - 0.024), 'wood')),
       ]
-    case 'locker':
-      return [
-        part(w, h, d, 0, 0, 0, 'metal'),
-        part(w * 0.92, 0.055, 0.025, 0, h * 0.92, d / 2, 'trim'),
-        part(w * 0.92, 0.055, 0.025, 0, h * 0.14, d / 2, 'trim'),
-        part(0.04, h * 0.76, 0.03, -w * 0.035, h * 0.15, d / 2, 'trim'),
-        part(0.025, 0.16, 0.05, w * 0.27, h * 0.51, d / 2, 'trim'),
-        ...[-0.3, -0.18, -0.06].map(k => part(w * 0.56, 0.021, 0.027, -w * 0.03, h * (0.81 + k), d / 2, 'trim')),
+      const shelfLevels = [0.24, 0.47, 0.70, 0.91]
+      for (const level of shelfLevels) {
+        parts.push(part(w * 0.94, 0.039, d * 0.96, 0, h * level, 0, 'wood'))
+      }
+      // Binders, folders and slim spines remain inside the shelf envelope.
+      for (let level = 0; level < shelfLevels.length - 1; level++) {
+        const y0 = h * shelfLevels[level] + 0.045
+        const top = h * shelfLevels[level + 1] - 0.037
+        for (let i = 0; i < 17; i++) {
+          if ((i * 7 + level * 3) % 13 === 0) continue
+          const z = -d * 0.42 + (i / 16) * d * 0.84
+          const height = Math.max(0.05, (top - y0) * (0.67 + (i % 5) * 0.058))
+          parts.push(part(w * (0.34 + (i % 3) * 0.055), height,
+            Math.min(0.045, d * 0.034),
+            w * 0.03, y0, z, i % 4 === 0 ? 'fabric' : i % 5 === 0 ? 'trim' : 'wood'))
+          if (i % 3 === 1) {
+            parts.push(part(0.006, 0.012, 0.021, w * 0.27,
+              y0 + Math.max(0.008, height * 0.62), z, 'stone'))
+          }
+        }
+      }
+      return parts
+    }
+    case 'locker': {
+      // 1980s stamped-steel wardrobe, double-sided so it reads correctly from
+      // either end of the corridor. Hiding interactions remain unchanged.
+      const parts: Part[] = [
+        part(w * 0.97, h * 0.94, d * 0.96, 0, 0.025, 0, 'metal'),
+        part(w, h * 0.03, d, 0, h * 0.97, 0, 'trim'),
+        part(w * 0.98, 0.055, d * 0.98, 0, 0.008, 0, 'trim'),
       ]
+      for (const front of [-1, 1]) {
+        const z = front * d * 0.491
+        parts.push(
+          part(w * 0.88, h * 0.82, 0.019, 0, 0.075, z, 'trim'),
+          part(w * 0.81, h * 0.75, 0.018, 0, 0.105, z + front * 0.013, 'metal'),
+          part(w * 0.76, h * 0.025, 0.019, 0, h * 0.76, z + front * 0.028, 'trim'),
+          part(w * 0.76, h * 0.025, 0.019, 0, h * 0.2, z + front * 0.028, 'trim'),
+          part(0.03, h * 0.14, 0.031, w * 0.23, h * 0.47, z + front * 0.045, 'stone'),
+        )
+        for (const yy of [0.72, 0.79, 0.86]) {
+          for (let i = 0; i < 4; i++) {
+            parts.push(part(w * 0.12, 0.010, 0.009,
+              w * (-0.29 + i * 0.19), h * yy,
+              z + front * 0.044, 'monster'))
+          }
+        }
+        for (const y of [0.12, 0.50, 0.88]) {
+          parts.push(detailedPart(new THREE.CylinderGeometry(0.013, 0.013, 0.05, 8),
+            'trim', w * 0.465, h * y, z + front * 0.034))
+        }
+      }
+      return parts
+    }
     case 'recordcabinet':
       // Three visually distinct drawer fronts, with recessed borders and brass labels.
       // Their state is intentionally static until Cursor wires interaction.
@@ -660,8 +814,32 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
         ]),
         part(w * 0.83, 0.032, 0.20, 0, 0.30, -d * 0.12, 'wood'),
       ]
-    case 'altar':
-      return [part(w, h, d, 0, 0, 0, 'stone'), part(0.08, 0.35, 0.08, -0.3, h, 0, 'trim')]
+    case 'altar': {
+      // Stone-faced altar with a linen runner, relief pilasters, candleholders
+      // and a carved wooden crucifix, all within the existing interaction area.
+      const parts: Part[] = [
+        part(w, h * 0.78, d * 0.91, 0, 0.05, 0, 'stone'),
+        part(w * 1.06, 0.10, d * 1.12, 0, h - 0.10, 0, 'stone'),
+        part(w * 0.96, 0.025, d * 0.54, 0, h + 0.005, 0, 'fabric'),
+        part(w * 0.92, 0.055, d, 0, 0.012, 0, 'trim'),
+        ...[-1, 1].map(k =>
+          part(w * 0.13, h * 0.58, d * 0.12, k * w * 0.38, 0.105,
+            -d * 0.34, 'trim')),
+        part(w * 0.18, h * 0.36, 0.022, 0, h * 0.36, -d * 0.478, 'trim'),
+        part(w * 0.36, h * 0.055, 0.024, 0, h * 0.54, -d * 0.491, 'trim'),
+        part(0.09, 0.45, 0.06, 0, h + 0.025, 0, 'wood'),
+        part(0.31, 0.063, 0.065, 0, h + 0.27, 0, 'wood'),
+      ]
+      for (const k of [-1, 1]) {
+        parts.push(
+          detailedPart(new THREE.CylinderGeometry(0.048, 0.061, 0.05, 12),
+            'trim', k * w * 0.36, h + 0.034, 0),
+          detailedPart(new THREE.CylinderGeometry(0.025, 0.028, 0.16, 9),
+            'stone', k * w * 0.36, h + 0.135, 0),
+        )
+      }
+      return parts
+    }
     case 'sofa':
       return [
         part(w, 0.28, d, 0, 0.26, 0, 'fabric'),
@@ -754,11 +932,7 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
     case 'fridge':
       return [part(w, h, d, 0, 0, 0, 'metal')]
     case 'safe':
-      return [
-        part(w, h, d, 0, 0, 0, 'metal'),
-        part(w * 0.78, h * 0.72, 0.03, 0, h * 0.06, d * 0.52, 'trim'),
-        part(0.1, 0.1, 0.05, w * 0.18, h * 0.42, d * 0.55, 'metal'),
-      ]
+      return safeArt(w, h, d)
     case 'bed':
       return [
         part(w, 0.11, d, 0, 0.31, 0, 'metal'),
@@ -900,34 +1074,77 @@ function sign(scene: THREE.Scene, door: DoorInst, materials: Materials) {
   }
 }
 
+/** Art-only collectible models, keeping the existing pick-up anchor and IDs. */
 function pickupMesh(itemId: string, materials: Materials): THREE.Object3D {
-  const g = new THREE.Group()
-  let mesh: THREE.Mesh
-  if (itemId.includes('fuse')) {
-    const color = itemId.includes('red') ? '#b4231c' : itemId.includes('blue') ? '#2458a8' : '#c6a227'
-    mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 0.16, 8),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.3, emissive: color, emissiveIntensity: 0.2 }),
-    )
-  } else if (itemId === 'battery') {
-    mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.16, 8), materials.metal)
-  } else if (itemId.includes('key')) {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.05), materials.metal)
-  } else if (itemId === 'medkit') {
-    mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.22, 0.1, 0.16),
-      new THREE.MeshStandardMaterial({ color: '#f2f2f0', roughness: 0.5 }),
-    )
-  } else if (itemId === 'rosary') {
-    mesh = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.015, 6, 12), materials.metal)
-  } else if (itemId === 'crowbar') {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.04), materials.metal)
-    mesh.rotation.z = 0.4
-  } else if (itemId === 'evidence') {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.2), materials.door)
-  } else {
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.16), materials.door)
+  const root = new THREE.Group()
+  root.name = 'CollectibleArt_' + itemId
+  const brass = new THREE.MeshStandardMaterial({ color: '#b59a63', roughness: 0.48, metalness: 0.8 })
+  const dark = new THREE.MeshStandardMaterial({ color: '#252a2b', roughness: 0.66, metalness: 0.5 })
+  const ivory = new THREE.MeshStandardMaterial({ color: '#c7bca1', roughness: 0.93 })
+  const red = new THREE.MeshStandardMaterial({ color: '#a7523c', roughness: 0.66 })
+  const add = (g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0) => {
+    const mesh = new THREE.Mesh(g, m)
+    mesh.position.set(x, y, z)
+    mesh.castShadow = true
+    root.add(mesh)
+    return mesh
   }
-  g.add(mesh)
-  return g
+  if (itemId === 'battery') {
+    // Distinct 1980s zinc-carbon flashlight cell: cap, terminal and label.
+    add(new THREE.CylinderGeometry(0.044, 0.044, 0.175, 20), dark)
+    add(new THREE.CylinderGeometry(0.045, 0.045, 0.025, 20), brass, 0, 0.079)
+    add(new THREE.CylinderGeometry(0.018, 0.018, 0.015, 16), brass, 0, 0.10)
+    add(new THREE.CylinderGeometry(0.046, 0.046, 0.08, 20, 1, true), red, 0, 0.011)
+    add(new THREE.BoxGeometry(0.073, 0.015, 0.008), ivory, 0, 0.015, -0.044)
+  } else if (itemId.includes('fuse')) {
+    const color = itemId.includes('red') ? '#ac453b'
+      : itemId.includes('blue') ? '#4b7994' : '#b7a061'
+    const ceramic = new THREE.MeshStandardMaterial({ color, roughness: 0.49, metalness: 0.11 })
+    // Coloured ceramic cartridge and conductive contacts.
+    const cartridge = add(new THREE.CylinderGeometry(0.035, 0.035, 0.17, 18), ceramic)
+    cartridge.rotation.z = Math.PI / 2
+    for (const x of [-0.09, 0.09]) {
+      const cap = add(new THREE.CylinderGeometry(0.041, 0.041, 0.024, 16), brass, x)
+      cap.rotation.z = Math.PI / 2
+    }
+    const index = add(new THREE.BoxGeometry(0.07, 0.016, 0.013), ivory, 0, 0.027, -0.028)
+    index.rotation.z = 0.04
+  } else if (itemId.includes('key')) {
+    // Proper bored bow, blade and two distinct teeth.
+    add(new THREE.TorusGeometry(0.055, 0.013, 9, 24), brass, -0.065, 0.0)
+    add(new THREE.BoxGeometry(0.145, 0.023, 0.023), brass, 0.045, 0)
+    for (const x of [0.091, 0.129])
+      add(new THREE.BoxGeometry(0.020, 0.034, 0.026), brass, x, -0.020)
+    add(new THREE.BoxGeometry(0.044, 0.032, 0.029), dark, -0.005, 0)
+  } else if (itemId === 'medkit') {
+    add(new THREE.BoxGeometry(0.27, 0.105, 0.19), ivory)
+    add(new THREE.BoxGeometry(0.276, 0.01, 0.20), materials.trim, 0, 0.030)
+    add(new THREE.BoxGeometry(0.043, 0.011, 0.015), red, 0, 0.060, -0.053)
+    add(new THREE.BoxGeometry(0.011, 0.043, 0.015), red, 0, 0.060, -0.053)
+    add(new THREE.BoxGeometry(0.065, 0.015, 0.02), dark, 0, 0.061, 0.074)
+  } else if (itemId === 'rosary') {
+    // 16 individual beads around a suspended metal cross.
+    for (let j = 0; j < 16; j++) {
+      const a = j / 16 * Math.PI * 2
+      add(new THREE.SphereGeometry(0.012, 8, 6), dark,
+        Math.cos(a) * 0.064, Math.sin(a) * 0.08, 0)
+    }
+    add(new THREE.BoxGeometry(0.018, 0.08, 0.012), brass, 0, -0.125)
+    add(new THREE.BoxGeometry(0.061, 0.014, 0.013), brass, 0, -0.112)
+  } else if (itemId === 'crowbar') {
+    const shaft = add(new THREE.CylinderGeometry(0.016, 0.019, 0.45, 12), dark)
+    shaft.rotation.z = Math.PI / 2 + 0.25
+    const hook = add(new THREE.TorusGeometry(0.051, 0.014, 8, 18, Math.PI * 0.85), brass,
+      0.20, 0.065)
+    hook.rotation.z = 0.5
+  } else {
+    // Folded paper, stamped cover, thread spine: documents stay recognisable
+    // even with no HUD and without revealing the note's contents.
+    add(new THREE.BoxGeometry(0.27, 0.012, 0.19), ivory)
+    add(new THREE.BoxGeometry(0.21, 0.005, 0.004), materials.trim, 0, 0.010, -0.052)
+    add(new THREE.BoxGeometry(0.18, 0.005, 0.004), materials.trim, -0.014, 0.010, -0.030)
+    add(new THREE.BoxGeometry(0.12, 0.005, 0.004), materials.trim, -0.044, 0.010, -0.008)
+    add(new THREE.BoxGeometry(0.075, 0.006, 0.044), red, 0.080, 0.010, 0.045)
+  }
+  return root
 }
