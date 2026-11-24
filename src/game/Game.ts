@@ -198,11 +198,11 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.setClearColor(0x07060a)
     this.scene.background = new THREE.Color(0x07060a)
-    this.scene.fog = new THREE.FogExp2(0x0a0b0f, 0.028)
+    this.scene.fog = new THREE.FogExp2(0x0d1013, 0.024)
     // Keep a trace of moonlight for orientation, but darkness must matter.
-    this.ambient = new THREE.AmbientLight(0x20262d, 0.028)
-    this.hemi = new THREE.HemisphereLight(0x243343, 0x0d0c0b, 0.075)
-    this.moon = new THREE.DirectionalLight(0x899baa, 0.018)
+    this.ambient = new THREE.AmbientLight(0x28313b, 0.043)
+    this.hemi = new THREE.HemisphereLight(0x32404b, 0x15130e, 0.112)
+    this.moon = new THREE.DirectionalLight(0x899baa, 0.027)
     this.moon.position.set(-20, 40, -10)
     this.scene.add(this.ambient, this.hemi, this.moon)
     this.closetBox = this.buildClosetBox()
@@ -2324,10 +2324,10 @@ export class Game {
 
   private buildViewmodel(): THREE.Group {
     const root = new THREE.Group()
-    const skin = new THREE.MeshStandardMaterial({ color: '#e0c2a4', roughness: 0.62, emissive: '#5c4030', emissiveIntensity: 0.22, depthTest: false })
-    const bodyMat = new THREE.MeshStandardMaterial({ color: '#3a3734', roughness: 0.4, metalness: 0.7, emissive: '#141312', emissiveIntensity: 0.18, depthTest: false })
-    const headMat = new THREE.MeshStandardMaterial({ color: '#d5d0c8', roughness: 0.28, metalness: 0.8, emissive: '#2a2926', emissiveIntensity: 0.2, depthTest: false })
-    const lensMat = new THREE.MeshBasicMaterial({ color: '#fff6df', depthTest: false })
+    const skin = new THREE.MeshStandardMaterial({ color: '#988176', roughness: 0.91, emissive: '#332a23', emissiveIntensity: 0.08, depthTest: false })
+    const bodyMat = new THREE.MeshStandardMaterial({ color: '#363b3a', roughness: 0.68, metalness: 0.48, emissive: '#111211', emissiveIntensity: 0.05, depthTest: false })
+    const headMat = new THREE.MeshStandardMaterial({ color: '#747874', roughness: 0.44, metalness: 0.72, emissive: '#171716', emissiveIntensity: 0.05, depthTest: false })
+    const lensMat = new THREE.MeshPhysicalMaterial({ color: '#ddd6c0', roughness: 0.22, metalness: 0.10, clearcoat: 0.85, clearcoatRoughness: 0.18, depthTest: false })
     const mark = (mesh: THREE.Object3D) => {
       mesh.frustumCulled = false
       mesh.renderOrder = 3
@@ -2402,6 +2402,9 @@ export class Game {
     root.add(mark(strap))
     const wrist = rod(v(0.18, -0.19, 0.17), v(0.115, -0.145, 0.135), 0.057, 0.049, gripMat)
     root.add(mark(wrist))
+    // Visually less intrusive on a 16:9 viewport; the spotlight position and
+    // gameplay battery/brightness calculations remain unchanged.
+    root.scale.setScalar(0.81)
     root.renderOrder = 3
     return root
   }
