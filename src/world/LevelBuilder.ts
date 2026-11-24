@@ -551,6 +551,96 @@ function part(w: number, h: number, d: number, x: number, y: number, z: number, 
   return { geo, mat }
 }
 
+/** Position a real curved detail in the shared material batches. */
+function detailedPart(
+  geo: THREE.BufferGeometry,
+  mat: keyof Materials,
+  x: number, y: number, z: number,
+  rotX = 0, rotY = 0, rotZ = 0,
+): Part {
+  if (rotX) geo.rotateX(rotX)
+  if (rotY) geo.rotateY(rotY)
+  if (rotZ) geo.rotateZ(rotZ)
+  geo.translate(x, y, z)
+  return { geo, mat }
+}
+
+/**
+ * 1980s iron safe: the interaction side faces -Z (the device sits at
+ * z=8.55, while the archive safe is at z=9.55). The old safe had its tiny
+ * handle on +Z, i.e. the player saw a blank back wall. This is art only;
+ * the safe's prop ID, hitbox, keypad and save state remain unchanged.
+ */
+function safeArt(w: number, h: number, d: number): Part[] {
+  const face = -d * 0.5
+  const parts: Part[] = [
+    // Cast-iron feet, chamfered plinth and full-depth shell.
+    part(w * 0.95, 0.055, d * 0.91, 0, 0.018, 0, 'trim'),
+    part(w, h * 0.87, d * 0.96, 0, h * 0.065, 0, 'metal'),
+    part(w * 1.025, 0.055, d * 1.015, 0, h - 0.055, 0, 'trim'),
+    // Heavy welded rim and door gap facing the player.
+    part(w * 0.89, h * 0.79, 0.033, 0, h * 0.115, face - 0.013, 'trim'),
+    part(w * 0.82, h * 0.72, 0.025, 0, h * 0.148, face - 0.036, 'monster'),
+    part(w * 0.79, h * 0.68, 0.039, 0, h * 0.16, face - 0.054, 'metal'),
+    // Strong hinges placed on the right-hand side of the near face.
+    ...[0.29, 0.70].map((height) =>
+      detailedPart(new THREE.CylinderGeometry(0.027, 0.027, h * 0.16, 12),
+        'trim', w * 0.43, h * height, face - 0.063)),
+    // Large engraved key/serial plate below the dial.
+    part(w * 0.42, h * 0.084, 0.012, -w * 0.15, h * 0.246, face - 0.080, 'trim'),
+    part(w * 0.36, h * 0.039, 0.014, -w * 0.15, h * 0.266, face - 0.090, 'stone'),
+  ]
+  // Combination dial with layered concentric metal rings and readable tick marks.
+  const dialX = -w * 0.165
+  const dialY = h * 0.625
+  parts.push(
+    detailedPart(new THREE.CylinderGeometry(w * 0.185, w * 0.185, 0.02, 32), 'trim',
+      dialX, dialY, face - 0.095, Math.PI / 2),
+    detailedPart(new THREE.TorusGeometry(w * 0.148, 0.008, 8, 36), 'stone',
+      dialX, dialY, face - 0.114),
+    detailedPart(new THREE.CylinderGeometry(w * 0.105, w * 0.105, 0.015, 28), 'metal',
+      dialX, dialY, face - 0.121, Math.PI / 2),
+    detailedPart(new THREE.CylinderGeometry(w * 0.039, w * 0.039, 0.019, 16), 'trim',
+      dialX, dialY, face - 0.137, Math.PI / 2),
+  )
+  for (let i = 0; i < 24; i++) {
+    const a = i * Math.PI * 2 / 24
+    const radius = w * 0.145
+    parts.push(part(0.007, i % 6 === 0 ? 0.025 : 0.012, 0.005,
+      dialX + Math.sin(a) * radius, dialY + Math.cos(a) * radius - (i % 6 === 0 ? 0.0125 : 0.006),
+      face - 0.121, 'trim'))
+  }
+  // Three-spoke steel opening wheel and a small central latch.
+  const handleX = w * 0.24
+  const handleY = h * 0.55
+  parts.push(
+    detailedPart(new THREE.TorusGeometry(w * 0.105, 0.012, 9, 24), 'trim',
+      handleX, handleY, face - 0.116),
+    detailedPart(new THREE.CylinderGeometry(0.027, 0.027, 0.06, 16), 'trim',
+      handleX, handleY, face - 0.116, Math.PI / 2),
+  )
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2
+    const beam = new THREE.BoxGeometry(w * 0.167, 0.014, 0.017)
+    beam.rotateZ(a)
+    beam.translate(handleX + Math.cos(a) * w * 0.073,
+      handleY + Math.sin(a) * w * 0.073, face - 0.122)
+    parts.push({ geo: beam, mat: 'trim' })
+  }
+  // Corner bolts and ventilation cuts; visual hardware not separate collision.
+  for (const side of [-1, 1]) {
+    for (const yy of [0.21, 0.82]) {
+      parts.push(detailedPart(new THREE.CylinderGeometry(0.014, 0.014, 0.009, 10),
+        'stone', side * w * 0.355, h * yy, face - 0.085, Math.PI / 2))
+    }
+  }
+  for (let i = 0; i < 4; i++) {
+    parts.push(part(w * 0.36, 0.008, 0.006, -w * 0.11, h * (0.10 + i * 0.017),
+      face - 0.086, 'monster'))
+  }
+  return parts
+}
+
 function buildProp(kind: string, w: number, h: number, d: number): Part[] {
   switch (kind) {
     case 'pillar':
@@ -754,11 +844,7 @@ function buildProp(kind: string, w: number, h: number, d: number): Part[] {
     case 'fridge':
       return [part(w, h, d, 0, 0, 0, 'metal')]
     case 'safe':
-      return [
-        part(w, h, d, 0, 0, 0, 'metal'),
-        part(w * 0.78, h * 0.72, 0.03, 0, h * 0.06, d * 0.52, 'trim'),
-        part(0.1, 0.1, 0.05, w * 0.18, h * 0.42, d * 0.55, 'metal'),
-      ]
+      return safeArt(w, h, d)
     case 'bed':
       return [
         part(w, 0.11, d, 0, 0.31, 0, 'metal'),
