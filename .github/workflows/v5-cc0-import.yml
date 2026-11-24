@@ -1,0 +1,45 @@
+name: V5 Import Official CC0 3D Models
+
+on:
+  push:
+    branches:
+      - design/v5-cinematic-complete-pass
+    paths:
+      - scripts/v5-import-polyhaven.mjs
+      - .github/workflows/v5-cc0-import.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sktagnes-v5-cc0-model-import
+  cancel-in-progress: false
+
+jobs:
+  import-staged-models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download and verify CC0 1k glTF dependencies
+        run: node scripts/v5-import-polyhaven.mjs
+      - name: Inspect imported asset structure
+        run: |
+          find public/models/polyhaven -type f | sort
+          du -sh public/models/polyhaven
+      - name: Commit assets to the V5 design branch only
+        env:
+          DESTINATION: design/v5-cinematic-complete-pass
+        run: |
+          test "$GITHUB_REF" = "refs/heads/$DESTINATION"
+          git config user.name "SktAgnes CC0 Asset CI"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/models/polyhaven
+          git diff --cached --quiet && exit 0
+          git commit -m "assets(v5): import verified CC0 wheelchair, vintage filing cabinet and flashlight"
+          git push origin "HEAD:refs/heads/$DESTINATION"
