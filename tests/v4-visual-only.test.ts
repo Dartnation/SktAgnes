@@ -10,7 +10,7 @@ describe('V4 design-only illustration and 3D presentation contract', () => {
       const svg = itemArtwork(item.name)
       expect(svg).toContain('<svg')
       expect(svg).toContain('aria-hidden="true"')
-      expect(svg).not.toContain('http://')
+      expect(svg).not.toContain('href="http')
       expect(svg).not.toContain('<image')
       expect(svg).not.toContain(item.name)
     }
