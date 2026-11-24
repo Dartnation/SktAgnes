@@ -139,7 +139,7 @@ export function addVisualDetailV5(
         box(p, 'brass', p.w * 0.31, surface + 0.022, -0.095, 0.09, 0.015, 0.02)
         disk(p, 'brass', p.w * 0.08, surface + 0.035, -p.d * 0.19, 0.12, 0.033)
         disk(p, 'steel', p.w * 0.08, surface + 0.063, -p.d * 0.19, 0.045, 0.030)
-        lamp(p, -p.w * 0.37, surface, -p.d * 0.13)
+        // The scanned CC0 desk lamp is mounted here by LevelBuilder.
         break
       case 'table':
       case 'desk':
