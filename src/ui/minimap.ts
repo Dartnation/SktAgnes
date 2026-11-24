@@ -122,8 +122,8 @@ function layout(state: MiniState, shown: MiniRoom[], minX: number, minZ: number,
   const height = 150
   const pad = 16
   const s = Math.min((width - pad * 2) / Math.max(1, maxX - minX), (height - 28) / Math.max(1, maxZ - minZ))
-  const X = (x: number) => pad + (x - minX) * s
-  const Z = (z: number) => 22 + (z - minZ) * s
+  const X = (x: number) => (width - (maxX - minX) * s) / 2 + (x - minX) * s
+  const Z = (z: number) => 22 + (height - 28 - (maxZ - minZ) * s) / 2 + (z - minZ) * s
   const here = shown.find((room) => state.px >= room.x && state.px <= room.x + room.w && state.pz >= room.z && state.pz <= room.z + room.d)
   const rooms: MapRoom[] = shown.map((room) => {
     const known = state.visited.has(room.id)
@@ -216,10 +216,13 @@ export function paintMinimap(ctx: CanvasRenderingContext2D, w: number, h: number
     if (rw <= 0 || rh <= 0) continue
     const fill = room.here ? '#512d2c' : room.known ? '#373836' : '#202224'
     ctx.fillStyle = fill
-    ctx.fillRect(x, y, rw, rh)
+    const radius = Math.min(3.5, rw / 5, rh / 5)
+    ctx.beginPath()
+    ctx.roundRect(x + 0.5, y + 0.5, Math.max(0, rw - 1), Math.max(0, rh - 1), radius)
+    ctx.fill()
     ctx.strokeStyle = room.here ? '#d3a07d' : room.known ? '#8f8c81' : '#53534d'
     ctx.lineWidth = room.here ? 1.8 : 1.1
-    ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, rw - 1), Math.max(0, rh - 1))
+    ctx.stroke()
     if (room.here) {
       ctx.fillStyle = '#c9987b'
       ctx.fillRect(x + 2, y + 2, Math.min(rw - 4, 3), Math.max(0, rh - 4))
@@ -310,11 +313,13 @@ export function paintMinimap(ctx: CanvasRenderingContext2D, w: number, h: number
 function projectForSize(state: MiniState, w: number, h: number): MapLayout {
   const base = projectMinimap(state)
   if (w === 220 && h === 150) return base
-  const scaleX = w / 220
-  const scaleY = h / 150
-    const map = <T extends { x: number; y: number }>(point: T): T => ({ ...point, x: point.x * scaleX, y: point.y * scaleY })
+  const scaleX = Math.min(w / 220, h / 150)
+  const scaleY = scaleX
+  const offsetX = (w - 220 * scaleX) / 2
+  const offsetY = (h - 150 * scaleY) / 2
+    const map = <T extends { x: number; y: number }>(point: T): T => ({ ...point, x: offsetX + point.x * scaleX, y: offsetY + point.y * scaleY })
   return {
-    rooms: base.rooms.map((room) => ({ ...room, x: room.x * scaleX, y: room.y * scaleY, w: room.w * scaleX, h: room.h * scaleY })),
+    rooms: base.rooms.map((room) => ({ ...room, x: offsetX + room.x * scaleX, y: offsetY + room.y * scaleY, w: room.w * scaleX, h: room.h * scaleY })),
     doors: base.doors.map(map),
     goals: base.goals.map(map),
     batteries: base.batteries.map(map),
