@@ -48,7 +48,7 @@ export function buildContainerRig(place: PlacedContainer): ContainerRig {
   root.position.set(place.x, floor + place.y, place.z)
   root.rotation.y = place.yaw
   if (place.spec.kind === 'drawer') return drawer(place.spec, root)
-  return cabinet(root)
+  return cabinet(root, place.spec.id)
 }
 
 function drawer(spec: ContainerSpec, root: THREE.Group): ContainerRig {
@@ -98,7 +98,7 @@ function drawer(spec: ContainerSpec, root: THREE.Group): ContainerRig {
   return { id: spec.id, root, mover }
 }
 
-function cabinet(root: THREE.Group): ContainerRig {
+function cabinet(root: THREE.Group, id: string): ContainerRig {
   // Open box, not a solid block behind a moving door.
   block(root, timber, -0.41, 0, -0.12, 0.042, 1.15, 0.43)
   block(root, timber, 0.41, 0, -0.12, 0.042, 1.15, 0.43)
@@ -121,7 +121,7 @@ function cabinet(root: THREE.Group): ContainerRig {
   block(hinge, brass, 0.69, 0, 0.088, 0.025, 0.14, 0.04)
   block(hinge, shadow, 0.69, 0, 0.111, 0.012, 0.093, 0.007)
   root.add(hinge)
-  return { id: '', root, mover: hinge }
+  return { id, root, mover: hinge }
 }
 
 /** Visual loot only. ContainerHost still owns when the model is visible. */
