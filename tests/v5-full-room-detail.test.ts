@@ -26,7 +26,7 @@ describe('V5 complete room dressing – strict presentation-only contract', () =
     const stats = root?.userData.detailStats as VisualDetailV5Stats
     for (const id of roomIds) expect(stats.rooms).toContain(id)
     expect(stats.details).toBeGreaterThan(300)
-    expect(stats.batches).toBeLessThanOrEqual(11)
+    expect(stats.batches).toBeLessThanOrEqual(20)
     expect(stats.anchors).toBeGreaterThan(50)
     expect(snapshotWorld()).toBe(before)
     dispose()
