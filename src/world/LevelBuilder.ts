@@ -10,6 +10,7 @@ import { addVisualV3 } from './VisualV3'
 import { addCinematicArtV3 } from './CinematicArtV3'
 import { addVisualIdentityV4 } from './VisualIdentityV4'
 import { addVisualDetailV5 } from './VisualDetailV5'
+import { mountScannedAssetV5, scannedAssetId } from './ScannedAssetsV5'
 
 export interface BuiltWorld {
   materials: Materials
@@ -98,6 +99,7 @@ export function buildLevel(scene: THREE.Scene, world: World, photos?: Map<string
   const chairParts: THREE.Matrix4[] = []
   const crateParts: THREE.Matrix4[] = []
   const barrelParts: THREE.Matrix4[] = []
+  const scannedDisposers: Array<() => void> = []
   let mannequin: THREE.Object3D = new THREE.Group()
   let pot: THREE.Object3D = new THREE.Group()
   let secretShelf: THREE.Object3D = new THREE.Group()
@@ -119,6 +121,25 @@ export function buildLevel(scene: THREE.Scene, world: World, photos?: Map<string
       continue
     }
     const built = buildProp(prop.kind, prop.w, prop.h, prop.d)
+    // Optional vetted 1K scanned art. Keep original as visual fallback until
+    // the local glTF has loaded. All original gameplay colliders remain intact.
+    if (scannedAssetId(prop.id)) {
+      const fallback = new THREE.Group()
+      fallback.name = 'ProceduralFallback_' + prop.id
+      for (const part of built) {
+        const mat = materials[part.mat]
+        if (!(mat instanceof THREE.Material)) continue
+        const mesh = new THREE.Mesh(part.geo, mat)
+        mesh.castShadow = true
+        mesh.receiveShadow = true
+        fallback.add(mesh)
+      }
+      fallback.position.set(prop.x, y, prop.z)
+      fallback.rotation.y = prop.rot
+      scene.add(fallback)
+      scannedDisposers.push(mountScannedAssetV5(scene, prop, fallback))
+      continue
+    }
     if (prop.kind === 'mannequin' || prop.kind === 'pot' || prop.id === 'secretshelf') {
       const g = new THREE.Group()
       for (const part of built) {
@@ -433,6 +454,7 @@ export function buildLevel(scene: THREE.Scene, world: World, photos?: Map<string
     rain,
     photoSlots,
     dispose() {
+      for (const close of scannedDisposers) close()
       disposeVisualDetailV5()
       disposeVisualIdentityV4()
       disposeCinematicArtV3()
