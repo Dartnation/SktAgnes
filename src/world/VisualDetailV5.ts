@@ -14,7 +14,6 @@ import { FLOOR_Y, type PropDef, type RoomDef } from './data'
 type GeometryType = 'box' | 'cylinder' | 'sphere' | 'torus' | 'sheet'
 type Finish = 'steel' | 'brass' | 'rubber' | 'linen' | 'paper' | 'paint'
   | 'glass' | 'oxide' | 'leather' | 'red' | 'ink'
-type Position = { prop: PropDef; ox: number; oy: number; oz: number }
 
 export interface VisualDetailV5Stats {
   rooms: string[]
@@ -91,8 +90,6 @@ export function addVisualDetailV5(
     disk(p, 'steel', x, y + 0.145 * size, z, 0.090 * size, 0.020 * size)
     disk(p, 'paper', x, y + 0.067 * size, z, 0.090 * size, 0.037 * size)
   }
-  const sheet = (p: PropDef, x: number, y: number, z: number, w: number, d: number, mat: Finish = 'paper') =>
-    paint(p, 'sheet', mat, x, y, z, w, d, 1, -Math.PI / 2)
   const ledger = (p: PropDef, x: number, y: number, z: number, w = 0.32, d = 0.22) => {
     box(p, 'leather', x, y, z, w, 0.029, d)
     box(p, 'paper', x, y + 0.017, z, w * 0.93, 0.009, d * 0.92)
@@ -310,7 +307,7 @@ export function addVisualDetailV5(
       default:
         break
     }
-    if (matrices.size) anchorCount++
+    if (seenRooms.has(p.room)) anchorCount++
   }
 
   const root = new THREE.Group()
