@@ -214,10 +214,12 @@ export class Game {
     this.scene.add(this.monster.group)
     this.atmo = new Atmosphere(this.scene, 24)
     this.scene.add(this.camera)
-    this.spot = new THREE.SpotLight('#eee2cb', 0, 21, 0.5, 0.72, 1.25)
+    this.spot = new THREE.SpotLight('#f1e4ca', 0, 21, 0.49, 0.87, 1.25)
     this.spot.castShadow = this.settings.quality !== 'low'
     this.spot.shadow.mapSize.set(this.settings.quality === 'high' ? 1024 : 512, this.settings.quality === 'high' ? 1024 : 512)
     this.spot.shadow.bias = -0.00025
+    this.spot.shadow.normalBias = 0.014
+    this.spot.shadow.radius = 1.8
     this.spot.shadow.camera.near = 0.1
     this.spot.shadow.camera.far = 18
     this.camera.add(this.spot)
@@ -2355,6 +2357,51 @@ export class Game {
       const z = -0.01 - i * 0.04
       root.add(mark(rod(v(0.03, -0.01, z), v(-0.015, 0.028, z - 0.015), 0.011, 0.008, skin)))
     }
+    // Visual-only torch polish: machined aluminium collars, a rubber
+    // knurled grip, glass optic, mount screws and wrist strap. None of these
+    // meshes participate in picking, physics, light state or game rules.
+    const gripMat = new THREE.MeshStandardMaterial({
+      color: '#242728', metalness: 0.18, roughness: 0.93, depthTest: false,
+    })
+    const collarMat = new THREE.MeshStandardMaterial({
+      color: '#8d8471', metalness: 0.85, roughness: 0.40, depthTest: false,
+    })
+    const opticMat = new THREE.MeshPhysicalMaterial({
+      color: '#dad3b9', metalness: 0.08, roughness: 0.22,
+      transparent: true, opacity: 0.86, depthTest: false,
+    })
+    for (let i = 0; i < 5; i++) {
+      const rib = new THREE.Mesh(new THREE.CylinderGeometry(0.031, 0.031, 0.011, 24), gripMat)
+      rib.rotation.x = Math.PI / 2
+      rib.position.z = 0.0 + i * 0.020
+      root.add(mark(rib))
+    }
+    for (const [z, radius, width] of [
+      [-0.125, 0.036, 0.015],
+      [-0.173, 0.044, 0.010],
+      [-0.117, 0.031, 0.009],
+    ] as const) {
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, width, 24), collarMat)
+      collar.rotation.x = Math.PI / 2
+      collar.position.z = z
+      root.add(mark(collar))
+    }
+    const optic = new THREE.Mesh(new THREE.CircleGeometry(0.028, 24), opticMat)
+    optic.rotation.y = Math.PI
+    optic.position.z = -0.187
+    root.add(mark(optic))
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2
+      const screw = new THREE.Mesh(new THREE.SphereGeometry(0.0032, 7, 5), gripMat)
+      screw.position.set(Math.cos(angle) * 0.037, Math.sin(angle) * 0.037, -0.182)
+      root.add(mark(screw))
+    }
+    const strap = new THREE.Mesh(new THREE.TorusGeometry(0.037, 0.004, 5, 18), gripMat)
+    strap.rotation.y = Math.PI / 2
+    strap.position.set(0.002, -0.037, 0.085)
+    root.add(mark(strap))
+    const wrist = rod(v(0.18, -0.19, 0.17), v(0.115, -0.145, 0.135), 0.057, 0.049, gripMat)
+    root.add(mark(wrist))
     root.renderOrder = 3
     return root
   }
