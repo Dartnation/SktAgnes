@@ -657,3 +657,189 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   button { transition: none; }
 }
+
+
+/* ==============================================================
+   V4 · CLINICAL ARCHIVE – visual-only art direction
+   A restrained, legible 1987 asylum UI; no changes to input/events.
+   ============================================================== */
+:root {
+  --ivory: #e8dfcf;
+  --aged-brass: #a18a69;
+  --oxide: #9b5e50;
+  --soft-ink: #141719;
+}
+#hud::before {
+  width: min(280px, 30vw);
+  padding-bottom: 13px;
+  border-bottom: 1px solid rgba(183,147,107,.65);
+  text-shadow: 0 3px 18px #000, 0 0 1px rgba(245,217,184,.4);
+}
+#minimap {
+  background: radial-gradient(ellipse at 62% 35%, rgba(32,33,32,.96), rgba(8,10,11,.97));
+  border: 1px solid rgba(178,160,131,.48);
+  box-shadow: 0 12px 36px rgba(0,0,0,.62),
+    0 0 0 5px rgba(3,4,5,.53), inset 0 0 0 1px rgba(255,236,198,.09);
+  border-radius: 2px;
+}
+.obj {
+  min-width: 226px;
+  background: linear-gradient(91deg,rgba(8,10,12,.94),rgba(8,10,12,.58) 76%,transparent);
+  border-left: 2px solid var(--aged-brass);
+  border-bottom: 1px solid rgba(170,144,109,.11);
+  box-shadow: -1px 0 22px rgba(4,4,4,.3);
+}
+.obj span { color: #c9a57c; }
+.prompt {
+  min-width: 170px;
+  max-width: min(80vw,600px);
+  white-space: normal;
+  text-align: center;
+  border-color: rgba(200,177,141,.51);
+  border-bottom: 2px solid rgba(169,107,90,.77);
+  background: linear-gradient(120deg,rgba(18,20,21,.95),rgba(11,13,15,.84));
+  box-shadow: 0 12px 34px rgba(0,0,0,.48);
+}
+.prompt b {
+  padding: 5px 11px;
+  margin-right: 5px;
+  color: #f3e8d7;
+  border: 1px solid rgba(219,197,159,.5);
+  background: rgba(135,118,94,.17);
+}
+.bars, .bars.right {
+  border: 1px solid rgba(196,171,137,.13);
+  border-top-color: rgba(215,193,151,.46);
+  background: linear-gradient(140deg,rgba(8,10,12,.87),rgba(10,11,13,.7));
+  box-shadow: 0 6px 22px rgba(0,0,0,.32);
+}
+.bars .bar, .bars.right .bar {
+  border-radius: 1px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.65);
+}
+.bars .bar i, .bars.right .bar i { box-shadow: 0 0 6px rgba(214,195,155,.28); }
+#btn-inv-hud { border-color: rgba(192,169,135,.48); }
+#inventory .card.wide {
+  background: linear-gradient(125deg,rgba(24,26,28,.98),rgba(8,9,11,.985));
+  border: 1px solid rgba(178,157,125,.48);
+  box-shadow: 0 20px 90px rgba(0,0,0,.78), inset 0 1px rgba(237,207,155,.16);
+}
+#inventory h2 { letter-spacing: .14em; color: #eee3d1; }
+#inventory h2::before { content: "▤"; color: var(--aged-brass); }
+#inv-list {
+  background: none;
+  scrollbar-color: rgba(159,126,102,.65) rgba(21,23,25,.9);
+}
+#inv-list .inv-item {
+  isolation: isolate;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 125px;
+  padding: 11px 9px 10px;
+  border: 1px solid rgba(168,148,121,.32);
+  background:
+    radial-gradient(ellipse at 50% 16%,rgba(115,106,89,.20),transparent 70%),
+    linear-gradient(150deg,rgba(39,42,42,.87),rgba(14,16,18,.96));
+  box-shadow: inset 0 1px rgba(255,255,255,.035), 0 8px 18px rgba(0,0,0,.16);
+}
+#inv-list .inv-item::before { display: none; }
+#inv-list .inv-item:hover {
+  background: linear-gradient(145deg,#3a3430,#1b1c1c);
+  border-color: #b69b77;
+}
+#inv-list .inv-item.on {
+  border-color: #caa477;
+  background: linear-gradient(145deg,#3c322b,#1a1c1c);
+  box-shadow: inset 0 0 0 1px rgba(226,188,132,.19),0 0 15px rgba(161,109,75,.12);
+}
+.item-art {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-height: 75px;
+  width: 100%;
+  color: #c4ad8b;
+  filter: drop-shadow(0 5px 7px rgba(0,0,0,.52));
+}
+.item-art .item-illustration {
+  width: clamp(42px, 5vw, 76px);
+  height: clamp(42px, 5vw, 76px);
+}
+.inv-item:hover .item-art, .inv-item.on .item-art { color: #e6c99e; }
+.item-name {
+  min-height: 2.7em;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  font: 600 11px/1.35 "Segoe UI",system-ui,sans-serif;
+  color: #e4d9ca;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+#found {
+  top: 45%;
+  min-width: min(370px,calc(100vw - 32px));
+  width: min(500px,calc(100vw - 32px));
+  max-width: none;
+  padding: 30px 33px 27px;
+  border: 1px solid rgba(192,172,140,.65);
+  border-top: 2px solid rgba(218,184,132,.86);
+  background: radial-gradient(ellipse at 50% 12%,rgba(82,67,53,.3),transparent 70%),
+    linear-gradient(160deg,rgba(16,18,19,.98),rgba(8,10,11,.95));
+  box-shadow: 0 23px 70px rgba(0,0,0,.72),inset 0 1px 0 rgba(255,245,223,.14);
+}
+#found-art {
+  width: 115px;
+  height: 100px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 8px;
+  color: #d9ba88;
+}
+#found-art .item-illustration {
+  height: 96px;
+  width: 96px;
+  filter: drop-shadow(0 6px 16px rgba(0,0,0,.6));
+}
+#found-kicker {
+  color: #d0ad82;
+  font: 700 11px/1.35 "Segoe UI",sans-serif;
+  text-transform: uppercase;
+  letter-spacing: .28em;
+}
+#found-name {
+  margin: 10px 0;
+  font: 500 clamp(23px,3vw,36px)/1.15 Georgia,serif;
+  letter-spacing: .045em;
+  color: #f1e6d5;
+  overflow-wrap: anywhere;
+}
+#found-desc {
+  margin-top: 7px;
+  line-height: 1.48;
+  font-size: 15px;
+  color: #ccc0ae;
+}
+#found.important {
+  border-color: rgba(179,105,84,.8);
+  border-top-color: #cf8d70;
+}
+#inventory .actions .text-btn:focus-visible,
+#inv-list .inv-item:focus-visible {
+  outline: 2px solid #e0c49a;
+  outline-offset: 3px;
+}
+@media (max-width:760px) {
+  #hud::before { width: 165px; }
+  #found { top: 42%; padding: 18px 16px; }
+  #found-art { height: 62px; margin-bottom: 4px; }
+  #found-art .item-illustration { height: 62px; width: 62px; }
+  #inv-list .inv-item { min-height: 92px; padding: 6px; }
+  .item-art { min-height: 45px; }
+  .item-art .item-illustration { width: 46px; height: 46px; }
+  .item-name { font-size: 10px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  #inv-list .inv-item, #found { animation: none; transition: none; }
+}
