@@ -224,6 +224,7 @@ export class Game {
   private hangCryDone = false
   private hangBang = false
   private hangFallIn = -1
+  private morgueDropAt = -1
   private hangRunIn = -1
   private hangBody: THREE.Group | null = null
   private hangRope: THREE.Mesh | null = null
@@ -1171,7 +1172,7 @@ export class Game {
 
   private enterHide(id: string): void {
     const spot = this.world.hides.find((h) => h.id === id)
-    if (!spot) return
+    if (!spot || spot.room === 'patientgang') return
     this.hiding = id
     this.bus.emit({ type: 'playerHidden', id })
     this.sim.x = spot.x
@@ -1811,7 +1812,7 @@ export class Game {
     })
     const sheetDone = (this.snap.events?.beats ?? []).includes('slag_sheet')
     const boxOpen = (this.snap.events?.beats ?? []).includes('slag_code')
-    if (!sheetDone && this.sheetU < 0) {
+    if (!sheetDone && this.sheetU < 0 && (this.snap.events?.beats ?? []).includes('slag_hang_drop') && (this.hangPhase === 'off' || this.hangPhase === 'flee')) {
       list.push({ id: 'sheet', kind: 'sheet', x: 40.2, y: 1.05, z: 7.55, radius: 1.15, prompt: 'for at trække lagenet af' })
     }
     if (sheetDone && !boxOpen) {
@@ -1847,6 +1848,7 @@ export class Game {
     }
     list.push(...this.containers.candidates())
     for (const h of this.world.hides) {
+      if (h.room === 'patientgang') continue
       const room = this.world.rooms.find((r) => r.id === h.room)!
       list.push({
         id: h.id,
@@ -2165,6 +2167,7 @@ export class Game {
     this.audio.beginScene()
     this.audio.stopLeftCry()
     this.hangPhase = 'off'
+    this.morgueDropAt = -1
     if (this.hangBody) this.hangBody.visible = false
     if (this.hangRope) this.hangRope.visible = false
     if (this.doorHangBody) this.doorHangBody.visible = false
@@ -2235,6 +2238,7 @@ export class Game {
     this.audio.beginScene()
     this.audio.stopLeftCry()
     this.hangPhase = 'off'
+    this.morgueDropAt = -1
     if (this.hangBody) this.hangBody.visible = false
     if (this.hangRope) this.hangRope.visible = false
     if (this.doorHangBody) this.doorHangBody.visible = false
@@ -2774,6 +2778,18 @@ export class Game {
     this.stepSheet(dt)
     if (this.prevRoom && room && this.prevRoom !== room) this.slamEntered(this.prevRoom, room)
     this.stepPendingSlam()
+    // Wait for the physical entry door to finish closing, then delay the scare.
+    const morgueBeats = this.snap.events.beats
+    if (room === 'slagterum' && !morgueBeats.includes('slag_hang_drop') && !morgueBeats.includes('slag_sheet')) {
+      const closed = !this.pendingSlam && (this.open.get('door_op_slag') ?? 0) < .03
+      if (!closed) this.morgueDropAt = -1
+      else if (this.morgueDropAt < 0) this.morgueDropAt = this.snap.playTime + 3.5
+      else if (this.snap.playTime >= this.morgueDropAt) {
+        this.beginHang()
+        this.hangFallIn = .5
+        morgueBeats.push('slag_hang_drop')
+      }
+    } else this.morgueDropAt = -1
     this.prevRoom = room
     this.prevFlash = this.sim.flashlightOn
     for (const cue of stepped.cues) {
@@ -3597,7 +3613,7 @@ export class Game {
     const mattressMat = new THREE.MeshStandardMaterial({ color: '#8a7968', roughness: 0.94 })
     const shirt = new THREE.MeshStandardMaterial({ color: '#3c4650', roughness: 0.9 })
     const trousers = new THREE.MeshStandardMaterial({ color: '#2a2826', roughness: 0.92 })
-    const skin = new THREE.MeshStandardMaterial({ color: '#6b5648', roughness: 0.86 })
+    const skin = new THREE.MeshStandardMaterial({ color: '#a18f80', roughness: 0.86 })
     const deck = new THREE.Mesh(new THREE.BoxGeometry(2.16, 0.06, 0.96), iron)
     deck.position.y = 0.46
     const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.12, 0.84, 16, 3, 8), mattressMat)
@@ -3652,7 +3668,7 @@ export class Game {
     bed.add(legs)
     const upper = new THREE.Group()
     upper.position.set(0.02, 0.74, 0)
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.38, 4, 8), shirt)
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.38, 12, 24), shirt)
     torso.rotation.z = Math.PI / 2
     torso.position.set(-0.24, 0.04, 0)
     const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.08, 8), skin)
@@ -3662,6 +3678,18 @@ export class Game {
     head.scale.set(1.05, 0.92, 0.95)
     head.position.set(-0.64, 0.08, 0)
     upper.add(torso, neck, head)
+    torso.scale.set(1.03,1,1.22)
+    const faceDark = new THREE.MeshStandardMaterial({color:'#4b413d',roughness:.94})
+    for(const z of [-1,1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(.023,16,10),faceDark)
+      eye.scale.set(.55,.32,1);eye.position.set(-.66,.176,z*.041);upper.add(eye)
+      const ear= new THREE.Mesh(new THREE.SphereGeometry(.024,16,10),skin)
+      ear.scale.set(1.1,.68,.58);ear.position.set(-.64,.072,z*.101);upper.add(ear)
+    }
+    const nose=new THREE.Mesh(new THREE.SphereGeometry(.027,16,12),skin)
+    nose.scale.set(1.25,.95,.64);nose.position.set(-.63,.183,0);upper.add(nose)
+    const mouth=new THREE.Mesh(new THREE.SphereGeometry(.026,16,10),faceDark)
+    mouth.scale.set(.32,.23,1.25);mouth.position.set(-.593,.164,0);upper.add(mouth)
     for (const z of [-1, 1]) {
       const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.04, 0.42, 3, 6), shirt)
       arm.rotation.z = Math.PI / 2
@@ -3765,6 +3793,7 @@ export class Game {
   private pullSheet(): void {
     if (this.sheetU >= 0) return
     if ((this.snap.events?.beats ?? []).includes('slag_sheet')) return
+    if (!(this.snap.events?.beats ?? []).includes('slag_hang_drop') || (this.hangPhase !== 'off' && this.hangPhase !== 'flee')) return
     this.sheetU = 0
     this.audio.play('paper', { x: 40.2, y: 1, z: 7.55 }, { volume: 0.45 })
   }
@@ -3841,13 +3870,11 @@ export class Game {
       const dz = spot.z - this.camera.position.z
       const dist = Math.hypot(dx, dy, dz) || 1
       const dot = (this.camDir.x * dx + this.camDir.y * dy + this.camDir.z * dz) / dist
-      if (here?.id === 'slagterum' && dot > 0.9 && dist < 2.1) this.corpseLook += dt
+      // The printed face of the number points toward the positive-Z side.
+      const correctSide = this.camera.position.z > spot.z + .35
+      if (here?.id === 'slagterum' && correctSide && dot > 0.9 && dist < 2.1) this.corpseLook += dt
       else this.corpseLook = 0
       if (this.corpseLook < 1) return
-      if (this.hangPhase === 'off') {
-        this.beginHang()
-        this.hangFallIn = 2
-      }
       this.corpseSit = 'up'
       this.corpseSitT = 0
       this.audio.playClip('hangDrop', { x: 40.2, y: 1.15, z: 7.55 }, 1)
@@ -4003,7 +4030,10 @@ export class Game {
     if (pending.at < 0) pending.at = this.snap.playTime + 2
     if (this.snap.playTime < pending.at) return
     this.pendingSlam = null
-    if (dist > 0.9) this.slamDoor(door.id)
+    if (dist > 0.9) {
+      this.slamDoor(door.id)
+      if (pending.room === 'slagterum' && !(this.snap.events?.beats ?? []).includes('slag_hang_drop')) this.morgueDropAt = -1
+    }
   }
 
   /** A flat square on the reception floor, and the monitor on the west wall. */
