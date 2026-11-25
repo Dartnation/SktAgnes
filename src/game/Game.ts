@@ -22,7 +22,6 @@ import { buildDoorGhost } from '../world/doorGhost'
 import { buildLevel, type BuiltWorld } from '../world/LevelBuilder'
 import type { SurfaceSet } from '../world/photoSurfaces'
 import { EXIT_DOOR, FLOOR_Y } from '../world/data'
-import { replaceCameraFlashlightV5 } from '../world/ScannedAssetsV5'
 import { ContainerHost } from './ContainerHost'
 import { Input } from './Input'
 import { GAMEPLAY_EDGES, inventoryKey, MODAL_KEYS, modeAction, type GameMode } from './modalInput'
@@ -4001,11 +4000,11 @@ export class Game {
       new THREE.PlaneGeometry(1, 1),
       new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }),
     )
-    screen.position.z = 0.03
+    screen.position.z = 0.061
     screen.visible = false
     const bezel = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 0.04),
-      new THREE.MeshStandardMaterial({ color: '#14110f', roughness: 0.5, metalness: 0.4 }),
+      new THREE.BoxGeometry(1, 1, 0.105),
+      new THREE.MeshStandardMaterial({ color: '#242523', roughness: 0.65, metalness: 0.55 }),
     )
     const group = new THREE.Group()
     group.position.set(0.16, 1.78, this.watchStand.z)
@@ -4024,21 +4023,27 @@ export class Game {
   private tapeLabel(): THREE.Mesh {
     const canvas = document.createElement('canvas')
     canvas.width = 1024
-    canvas.height = 160
+    canvas.height = 230
     const ctx = canvas.getContext('2d')
     if (ctx) {
-      ctx.fillStyle = '#16110e'
+      ctx.fillStyle = '#171918'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
-      ctx.fillStyle = '#f4e7d2'
-      ctx.font = '600 68px Georgia, serif'
+      ctx.strokeStyle = '#a28b69'
+      ctx.lineWidth = 3
+      ctx.strokeRect(12, 12, 1000, 206)
+      ctx.fillStyle = '#bfaa87'
+      ctx.font = '500 34px sans-serif'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillText('Frederik på fri fod', canvas.width / 2, canvas.height / 2 + 4)
+      ctx.fillText('SKT. AGNES  /  OVERVÅGNING', 512, 62)
+      ctx.fillStyle = '#f4e7d2'
+      ctx.font = '500 66px Georgia, serif'
+      ctx.fillText('Frederik på fri fod', 512, 145)
     }
     const map = new THREE.CanvasTexture(canvas)
     map.colorSpace = THREE.SRGBColorSpace
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.2, 0.34),
+      new THREE.PlaneGeometry(1, 1),
       new THREE.MeshBasicMaterial({ map, toneMapped: false }),
     )
     mesh.visible = false
@@ -4064,7 +4069,12 @@ export class Game {
     }
     screen.scale.set(width, height, 1)
     bezel.scale.set(width + 0.14, height + 0.14, 1)
-    if (this.tapeCaption) this.tapeCaption.position.set(0, -(height / 2) - 0.24, 0.05)
+    if (this.tapeCaption) {
+      const labelWidth = Math.max(1.05, width + 0.14)
+      const labelHeight = labelWidth * 230 / 1024
+      this.tapeCaption.scale.set(labelWidth, labelHeight, 1)
+      this.tapeCaption.position.set(0, -(height / 2) - 0.10 - labelHeight / 2, 0.061)
+    }
   }
 
   private resetWatch(): void {
@@ -4684,15 +4694,24 @@ export class Game {
     lens.rotation.y = Math.PI
     const nub = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.02, 0.018), headMat)
     nub.position.set(0, 0.03, 0.02)
-    const forearm = rod(v(0.12, -0.14, 0.16), v(0.03, -0.04, 0.04), 0.04, 0.028, skin)
-    const palm = ball(v(0.02, -0.02, -0.01), 0.034, skin)
-    const thumb = rod(v(0.04, -0.01, 0.02), v(0.01, 0.03, -0.06), 0.013, 0.01, skin)
+    const forearm = rod(v(0.12, -0.14, 0.16), v(0.038, -0.064, 0.055), 0.036, 0.025, skin)
+    const palm = ball(v(0.033, -0.045, 0.045), 0.033, skin)
+    palm.scale.set(0.75, 0.92, 1.45)
     housing.add(mark(body), mark(grip), mark(bezel), mark(lens), mark(nub))
-    root.add(mark(forearm), mark(palm), mark(thumb))
-    for (let i = 0; i < 3; i++) {
-      const z = -0.01 - i * 0.04
-      root.add(mark(rod(v(0.03, -0.01, z), v(-0.015, 0.028, z - 0.015), 0.011, 0.008, skin)))
+    root.add(mark(forearm), mark(palm))
+    // Articulated fingers curl around the compact grip instead of crossing its core.
+    for (let i = 0; i < 4; i++) {
+      const z = 0.083 - i * 0.021
+      const radius = 0.039
+      const points = Array.from({length: 7}, (_, j) => {
+        const a = -0.72 - j * 0.39
+        return v(Math.cos(a) * radius, Math.sin(a) * radius, z)
+      })
+      const finger = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 14, 0.009 - i * 0.0006, 10, false), skin)
+      root.add(mark(finger), mark(ball(points[6], 0.008 - i * 0.0005, skin)))
     }
+    const thumbCurve = new THREE.CatmullRomCurve3([v(0.053,-0.029,0.075),v(0.049,0.003,0.045),v(0.028,0.035,0.018),v(0.005,0.039,0.002)])
+    root.add(mark(new THREE.Mesh(new THREE.TubeGeometry(thumbCurve, 18, 0.012, 12, false), skin)), mark(ball(v(0.005,0.039,0.002),0.011,skin)))
     // Visual-only torch polish: machined aluminium collars, a rubber
     // knurled grip, glass optic, mount screws and wrist strap. None of these
     // meshes participate in picking, physics, light state or game rules.
@@ -4743,7 +4762,7 @@ export class Game {
     root.scale.setScalar(0.81)
     // Asynchronously replace ONLY the metal shell with a vetted local
     // scanned 3D model. Player hands, movement, light and battery are unchanged.
-    replaceCameraFlashlightV5(root, housing)
+    // Keep the compact housing matched to the authored finger grip.
     root.renderOrder = 3
     return root
   }
