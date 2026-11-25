@@ -3600,26 +3600,44 @@ export class Game {
     const skin = new THREE.MeshStandardMaterial({ color: '#6b5648', roughness: 0.86 })
     const deck = new THREE.Mesh(new THREE.BoxGeometry(2.16, 0.06, 0.96), iron)
     deck.position.y = 0.46
-    const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.12, 0.84), mattressMat)
+    const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.12, 0.84, 16, 3, 8), mattressMat)
+    // Round the upholstery corners without moving the gameplay anchor.
+    const soften = (geometry: THREE.BufferGeometry, half: THREE.Vector3, radius: number) => {
+      const pos = geometry.attributes.position
+      const p = new THREE.Vector3(), q = new THREE.Vector3()
+      for (let i = 0; i < pos.count; i++) {
+        p.fromBufferAttribute(pos, i)
+        q.set(Math.max(-half.x+radius,Math.min(half.x-radius,p.x)),Math.max(-half.y+radius,Math.min(half.y-radius,p.y)),Math.max(-half.z+radius,Math.min(half.z-radius,p.z)))
+        p.sub(q).normalize().multiplyScalar(radius).add(q)
+        pos.setXYZ(i,p.x,p.y,p.z)
+      }
+      geometry.computeVertexNormals()
+    }
+    soften(mattress.geometry, new THREE.Vector3(1,.06,.42), .045)
     mattress.position.y = 0.55
-    const headboard = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.62, 0.9), iron)
-    headboard.position.set(-1.05, 0.78, 0)
-    const footboard = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.36, 0.86), iron)
-    footboard.position.set(1.04, 0.64, 0)
-    bed.add(deck, mattress, headboard, footboard)
+    bed.add(deck, mattress)
+    // Tubular enamel hospital frame, rather than solid plank headboards.
+    for (const [x,h] of [[-1.05,1.08],[1.04,.83]]) {
+      const frame = new THREE.CatmullRomCurve3([v(x,.42,-.43),v(x,h-.09,-.43),v(x,h,-.34),v(x,h,.34),v(x,h-.09,.43),v(x,.42,.43)])
+      bed.add(new THREE.Mesh(new THREE.TubeGeometry(frame,40,.023,12,false),iron))
+      for (const z of [-.25,0,.25]) bed.add(rod(v(x,.5,z),v(x,h-.018,z),.012,.012,iron))
+    }
     for (const x of [-0.92, 0.92]) {
       for (const z of [-0.4, 0.4]) {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.46, 0.06), iron)
-        leg.position.set(x, 0.23, z)
-        bed.add(leg)
+        const leg = rod(v(x,.13,z),v(x,.48,z),.027,.022,iron)
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(.064,.064,.035,24),new THREE.MeshStandardMaterial({color:'#252525',roughness:.95}))
+        wheel.rotation.x=Math.PI/2; wheel.position.set(x,.164,z)
+        bed.add(leg,wheel)
       }
     }
     for (const z of [-0.46, 0.46]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 0.03), iron)
+      const rail = new THREE.Mesh(new THREE.CylinderGeometry(.016,.016,1.7,16), iron)
+      rail.rotation.z = Math.PI/2
       rail.position.set(0.02, 0.72, z)
       bed.add(rail)
     }
-    const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.08, 0.52), linen)
+    const pillow = new THREE.Mesh(new THREE.SphereGeometry(1,32,20), linen)
+    pillow.scale.set(.22,.065,.27)
     pillow.position.set(-0.78, 0.66, 0)
     bed.add(pillow)
     const legs = new THREE.Group()
@@ -3678,10 +3696,22 @@ export class Game {
     bed.add(upper)
     this.corpseUpper = upper
     this.sheetMark = mark
-    const sheet = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.035, 0.8), linen)
+    const sheetGeo = new THREE.PlaneGeometry(1.72, .80, 44, 24)
+    sheetGeo.rotateX(-Math.PI/2)
+    const clothPos=sheetGeo.attributes.position
+    for(let i=0;i<clothPos.count;i++) {
+      const x=clothPos.getX(i),z=clothPos.getZ(i)
+      const ridge=.018*Math.sin(z*39+x*9)+.012*Math.sin(x*28-z*13)
+      const drape=.085*Math.pow(Math.abs(z)/.4,4)
+      clothPos.setY(i,ridge-drape)
+    }
+    sheetGeo.computeVertexNormals()
+    const sheet = new THREE.Mesh(sheetGeo, linen.clone())
+    sheet.material.side=THREE.DoubleSide
     sheet.position.set(0.06, 0.9, 0)
     bed.add(sheet)
     this.sheetCloth = sheet
+    bed.traverse(obj=>{if(obj instanceof THREE.Mesh){obj.castShadow=true;obj.receiveShadow=true}})
     this.scene.add(bed)
 
     const box = new THREE.Group()
@@ -3708,6 +3738,25 @@ export class Game {
     key.rotation.y = 0.4
     key.visible = false
     box.add(housing, lid, key)
+    // Physical floor-standing cabinet supports the existing code box.
+    const cabinetMat = new THREE.MeshStandardMaterial({color:'#494d48',roughness:.79,metalness:.38})
+    const trimMat = new THREE.MeshStandardMaterial({color:'#77766b',roughness:.43,metalness:.68})
+    const cabinet = new THREE.Group()
+    const panel = (w:number,h:number,d:number,x:number,y:number,z:number,mat:THREE.Material=cabinetMat) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat)
+      m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;cabinet.add(m)
+    }
+    panel(.64,.065,.52,0,-.033,0)
+    panel(.60,.49,.46,0,-.31,0)
+    panel(.58,.07,.45,0,-.59,0)
+    for(const x of [-.25,.25]) for(const z of [-.19,.19]) panel(.065,.09,.065,x,-.575,z,trimMat)
+    for(const y of [-.18,-.39]) {
+      panel(.54,.18,.025,0,y,.242)
+      panel(.16,.022,.025,0,y,.273,trimMat)
+      panel(.12,.035,.006,0,y+.049,.258,trimMat)
+    }
+    box.add(cabinet)
+    box.traverse(obj=>{if(obj instanceof THREE.Mesh){obj.castShadow=true;obj.receiveShadow=true}})
     this.bodyLid = lid
     this.bodyKeyMesh = key
     this.scene.add(box)
